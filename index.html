@@ -1742,8 +1742,14 @@ function buildPrompt(items, airlineCode, airlineName, cabin, paxGroups, weightEs
   }).join('; ');
 
   const hasOverride = paxGroups.some(g => g.free !== 'auto' || g.weight !== 'auto');
+  const knownFreeBags = paxGroups
+    .filter(g => g.free !== 'auto')
+    .reduce((s, g) => s + g.count * parseInt(g.free), 0);
+  const autoPaxCount = paxGroups
+    .filter(g => g.free === 'auto')
+    .reduce((s, g) => s + g.count, 0);
   const overrideNote = hasOverride
-    ? `\nDifferent passenger groups may have different KNOWN baggage entitlements — where a group specifies a free-bag count or per-bag weight limit, use that EXACT value for that group instead of your own lookup (only fall back to the airline/cabin's standard allowance for groups marked "AI 按航司标准自行判断"). Sum each group's count × its free-bag entitlement to get the party's total free bags, and use each group's own weight limit for its bags when bin-packing.`
+    ? `\nDifferent passenger groups may have different KNOWN baggage entitlements — where a group specifies a free-bag count or per-bag weight limit, use that EXACT value for that group instead of your own lookup (only fall back to the airline/cabin's standard allowance for groups marked "AI 按航司标准自行判断"). The groups with a known entitlement already total EXACTLY ${knownFreeBags} free bags (this is pre-computed, do not recompute it)${autoPaxCount ? ` — add to that whatever your own standard per-pax free-bag lookup gives for the remaining ${autoPaxCount} pax marked "自动判断", and report that grand total as cost.free_bags` : ' — report cost.free_bags as exactly ' + knownFreeBags}. Use each group's own weight limit for its bags when bin-packing.`
     : '';
 
   const weightNote = weightEstimated
@@ -1849,7 +1855,7 @@ async function calculate() {
       console.error('[PARSE FAIL] raw text:\n', text);
       throw new Error(parseErr.message + '\n\n原始响应前500字：\n' + text.slice(0, 500));
     }
-    renderResults(parsed, totalPax);
+    renderResults(parsed, totalPax, paxGroups);
     console.log('[11] renderResults done');
 
   } catch (e) {
@@ -1862,7 +1868,7 @@ async function calculate() {
 }
 
 // ─── Render ───────────────────────────────────────────────
-function renderResults(r, totalPax) {
+function renderResults(r, totalPax, paxGroups) {
   if (!r || typeof r !== 'object') throw new Error('AI 返回数据格式错误，请重试');
   const rules = r.airline_rules || {};
   const bags  = r.packing_plan  || [];
@@ -1873,11 +1879,27 @@ function renderResults(r, totalPax) {
   document.getElementById('res-code').textContent = rules.airline_code;
   document.getElementById('res-class').textContent = `${rules.airline_name_cn} · ${rules.cabin_class}`;
 
+  // Free-bag total: compute deterministically from any explicit (non-auto)
+  // pax-group overrides rather than trusting the AI's arithmetic; only fall
+  // back to the AI-reported total for groups left on "自动判断".
+  const knownGroups = (paxGroups || []).filter(g => g.free !== 'auto');
+  const autoGroups  = (paxGroups || []).filter(g => g.free === 'auto');
+  const knownFreeBags = knownGroups.reduce((s, g) => s + g.count * parseInt(g.free), 0);
+  let freeBagsDisplay;
+  if (!autoGroups.length) {
+    freeBagsDisplay = knownFreeBags;
+  } else if (typeof cost.free_bags === 'number') {
+    freeBagsDisplay = cost.free_bags;
+  } else {
+    const fallbackPerPax = rules.free_bags_per_pax ?? 1;
+    freeBagsDisplay = knownFreeBags + autoGroups.reduce((s, g) => s + g.count * fallbackPerPax, 0);
+  }
+
   // Rules strip
   const ruleItems = [
     { v: `${rules.weight_limit_kg} kg`, l: '每件限重（默认）' },
     { v: `${rules.linear_limit_cm || '—'} cm`, l: '线性尺寸上限 (L+W+H)' },
-    { v: `${cost.free_bags ?? '—'} 件`, l: `${totalPax} 人合计免费` },
+    { v: `${freeBagsDisplay} 件`, l: `${totalPax} 人合计免费` },
     { v: rules.excess_bag_fee || '—', l: '超件费率' },
     { v: rules.overweight_fee || '—', l: '超重费率' },
   ];
