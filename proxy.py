@@ -177,7 +177,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         rid = next_req_id()
         print(f'  [{rid}] GET {self.path}')
-        if self.path == '/ping':
+        if self.path in ('/ping', '/api/ping'):
             self._send(200, b'{"pong":true}')
             print(f'  [{rid}] /ping OK')
             return
@@ -197,7 +197,7 @@ class Handler(BaseHTTPRequestHandler):
         rid = next_req_id()
         print(f'  [{rid}] POST {self.path} 已收到')
 
-        if self.path != '/proxy':
+        if self.path not in ('/proxy', '/api/proxy'):
             self._send(404, b'Not Found', 'text/plain')
             return
 
