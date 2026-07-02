@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""手提行李计算工具 — 本地代理（Google Gemini）"""
+"""手提行李计算工具 — 本地代理（Groq）"""
 
 import io
 import sys
@@ -15,11 +15,8 @@ import re
 import os
 import threading
 
-GEMINI_MODEL    = "gemini-2.5-flash"
-GEMINI_ENDPOINT = (
-    "https://generativelanguage.googleapis.com/v1beta/models/"
-    f"{GEMINI_MODEL}:generateContent?key={{key}}"
-)
+GROQ_MODEL    = "meta-llama/llama-4-maverick-17b-128e-instruct"
+GROQ_ENDPOINT = "https://api.groq.com/openai/v1/chat/completions"
 PORT     = 8765
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -47,8 +44,8 @@ def load_api_key():
             cfg = json.load(f)
         key = cfg.get('api_key', '').strip()
         if not key or key == 'YOUR_API_KEY_HERE':
-            print('\n  [错误] config.json 中未填入有效的 Gemini API Key。')
-            print('  请前往 https://aistudio.google.com/app/apikey 获取 Key，')
+            print('\n  [错误] config.json 中未填入有效的 Groq API Key。')
+            print('  请前往 https://console.groq.com/keys 获取 Key，')
             print('  填入 config.json 的 api_key 字段后重新启动。\n')
             return None
         return key
@@ -60,55 +57,56 @@ def load_api_key():
         return None
 
 
-def to_gemini(body_bytes):
-    """将 Anthropic 格式请求转换为 Gemini 格式。"""
-    data      = json.loads(body_bytes)
-    messages  = data.get('messages', [])
+def to_groq(body_bytes):
+    """将 Anthropic 格式请求转换为 Groq (OpenAI 兼容) 格式。"""
+    data     = json.loads(body_bytes)
+    messages = data.get('messages', [])
 
-    contents = []
+    groq_messages = []
     for msg in messages:
         raw  = msg.get('content', '')
-        role = 'user' if msg.get('role') == 'user' else 'model'
+        role = 'user' if msg.get('role') == 'user' else 'assistant'
 
         if isinstance(raw, str):
-            parts = [{'text': raw}]
+            content = raw
         elif isinstance(raw, list):
-            parts = []
+            content = []
             for item in raw:
                 t = item.get('type', '')
                 if t == 'text':
-                    parts.append({'text': item['text']})
+                    content.append({'type': 'text', 'text': item['text']})
                 elif t == 'image':
                     src = item.get('source', {})
                     if src.get('type') == 'base64':
-                        parts.append({
-                            'inlineData': {
-                                'mimeType': src.get('media_type', 'image/jpeg'),
-                                'data':     src.get('data', '')
+                        media_type = src.get('media_type', 'image/jpeg')
+                        content.append({
+                            'type': 'image_url',
+                            'image_url': {
+                                'url': f"data:{media_type};base64,{src.get('data', '')}"
                             }
                         })
         else:
-            parts = [{'text': str(raw)}]
+            content = str(raw)
 
-        contents.append({'role': role, 'parts': parts})
+        groq_messages.append({'role': role, 'content': content})
 
-    gemini_req = {
-        'contents': contents,
-        'generationConfig': {
-            'maxOutputTokens':  8192,
-            'temperature':      0.1,
-            'responseMimeType': 'application/json',
-            'thinkingConfig':   {'thinkingBudget': 0},
-        },
-        'systemInstruction': {
-            'parts': [{'text': (
-                'Output ONLY valid JSON with no markdown fences, no comments, '
-                'no trailing commas, no single quotes. '
-                'All keys and string values must use double quotes.'
-            )}]
-        }
+    groq_messages.insert(0, {
+        'role': 'system',
+        'content': (
+            'Output ONLY valid JSON with no markdown fences, no comments, '
+            'no trailing commas, no single quotes. '
+            'All keys and string values must use double quotes.'
+        )
+    })
+
+    groq_req = {
+        'model':           GROQ_MODEL,
+        'messages':        groq_messages,
+        'max_tokens':      data.get('max_tokens', 8192),
+        'temperature':     0.1,
+        'response_format': {'type': 'json_object'},
     }
-    return json.dumps(gemini_req).encode('utf-8')
+    return json.dumps(groq_req).encode('utf-8')
 
 
 def strip_fences(text):
@@ -118,34 +116,30 @@ def strip_fences(text):
     return text.strip()
 
 
-def from_gemini(resp_bytes):
-    """将 Gemini 响应转换为前端期望的格式。返回 (body, http_status)。"""
+def from_groq(resp_bytes):
+    """将 Groq 响应转换为前端期望的格式。返回 (body, http_status)。"""
     data = json.loads(resp_bytes)
 
     if 'error' in data:
         err = data['error']
-        msg = err.get('message', 'Gemini API 错误')
-        print(f'  [Gemini ERROR] {err.get("code")} {msg}')
+        msg = err.get('message', 'Groq API 错误')
+        print(f'  [Groq ERROR] {err.get("code")} {msg}')
         out = json.dumps({'error': {'message': msg}}).encode()
         return out, 502
 
     text = ''
     try:
-        candidate = data['candidates'][0]
-        reason    = candidate.get('finishReason', '')
-        print(f'  [Gemini] finishReason={reason}')
-        if reason == 'SAFETY':
-            text = '[内容被安全过滤器拦截，请修改描述后重试]'
-        elif reason == 'MAX_TOKENS':
-            raw = candidate['content']['parts'][0]['text']
-            print(f'  [WARN] 响应被截断（MAX_TOKENS），已收到 {len(raw)} 字符')
-            text = strip_fences(raw)
-        else:
-            text = strip_fences(candidate['content']['parts'][0]['text'])
+        choice = data['choices'][0]
+        reason = choice.get('finish_reason', '')
+        print(f'  [Groq] finish_reason={reason}')
+        raw = choice['message']['content']
+        if reason == 'length':
+            print(f'  [WARN] 响应被截断（length），已收到 {len(raw)} 字符')
+        text = strip_fences(raw)
     except (KeyError, IndexError) as e:
         text = '响应解析失败: ' + str(e)
 
-    print(f'  [Gemini text 前200字] {text[:200]}')
+    print(f'  [Groq text 前200字] {text[:200]}')
 
     result = json.dumps({'content': [{'type': 'text', 'text': text}]}).encode('utf-8')
     return result, 200
@@ -211,30 +205,32 @@ class Handler(BaseHTTPRequestHandler):
         print(f'  [{rid}] 请求体已读取 ({length} bytes)')
 
         try:
-            gemini_body = to_gemini(body)
+            groq_body = to_groq(body)
         except Exception as e:
             err = json.dumps({'error': {'message': f'请求转换失败: {e}'}}).encode()
             self._send(400, err)
             return
 
-        url = GEMINI_ENDPOINT.format(key=API_KEY)
         req = urllib.request.Request(
-            url, data=gemini_body, method='POST',
-            headers={'Content-Type': 'application/json'}
+            GROQ_ENDPOINT, data=groq_body, method='POST',
+            headers={
+                'Content-Type':  'application/json',
+                'Authorization': f'Bearer {API_KEY}',
+            }
         )
 
-        print(f'  [{rid}] 正在调用 Gemini API...')
+        print(f'  [{rid}] 正在调用 Groq API...')
         try:
             with urllib.request.urlopen(req, timeout=90) as resp:
                 raw = resp.read()
-            print(f'  [{rid}] Gemini 返回 {len(raw)} bytes')
-            result, status = from_gemini(raw)
+            print(f'  [{rid}] Groq 返回 {len(raw)} bytes')
+            result, status = from_groq(raw)
             self._send(status, result)
             print(f'  [{rid}] 响应已发送 (HTTP {status}, {len(result)} bytes)')
 
         except urllib.error.HTTPError as e:
             raw = e.read()
-            print(f'  [{rid}] Gemini HTTP Error {e.code}: {raw[:200]}')
+            print(f'  [{rid}] Groq HTTP Error {e.code}: {raw[:200]}')
             try:
                 err_data = json.loads(raw)
                 out = json.dumps({'error': err_data.get('error', {'message': f'HTTP {e.code}'})}).encode()
@@ -259,7 +255,7 @@ if __name__ == '__main__':
     # 监听所有接口（含 IPv4 和 IPv6），多线程处理
     server = ThreadingHTTPServer(('', PORT), Handler)
     print()
-    print(f'  [OK] Hand-Carry Tool started (Gemini {GEMINI_MODEL})')
+    print(f'  [OK] Hand-Carry Tool started (Groq {GROQ_MODEL})')
     print(f'  Browser: http://localhost:{PORT}')
     print(f'  Threaded mode, listening on all interfaces')
     print()

@@ -1398,7 +1398,7 @@ Reply with ONLY this JSON, no explanation, no markdown:
       const msg = data.error?.message || `HTTP ${res.status}`;
       if (res.status === 401 || msg.includes('API key') || msg.includes('key not valid'))
         throw new Error('API Key 无效，请检查 config.json');
-      if (msg.includes('quota') || msg.includes('RESOURCE_EXHAUSTED'))
+      if (msg.includes('quota') || msg.includes('rate_limit') || msg.toLowerCase().includes('rate limit'))
         throw new Error('配额已用尽，请稍后重试');
       throw new Error(msg);
     }
@@ -1590,8 +1590,8 @@ Reply with ONLY this JSON, no explanation, no markdown, no extra text:
       const msg = data.error?.message || `HTTP ${res.status}`;
       if (res.status === 401 || msg.includes('API key') || msg.includes('key not valid'))
         throw new Error('API Key 无效，请检查 config.json');
-      if (msg.includes('quota') || msg.includes('RESOURCE_EXHAUSTED'))
-        throw new Error('Gemini 配额已用尽，请稍后重试');
+      if (msg.includes('quota') || msg.includes('rate_limit') || msg.toLowerCase().includes('rate limit'))
+        throw new Error('Groq 配额已用尽或请求过于频繁，请稍后重试');
       throw new Error(msg);
     }
 
@@ -1779,8 +1779,8 @@ async function calculate() {
       console.error('[8] error response:', msg);
       if (res.status === 401 || (msg.includes('API key') || msg.includes('key not valid')))
         throw new Error('API Key 无效或已过期，请检查 config.json 中的密钥');
-      if (res.status === 429 || msg.includes('quota') || msg.includes('RESOURCE_EXHAUSTED'))
-        throw new Error('Gemini 配额已用尽或请求过于频繁，请稍后重试');
+      if (res.status === 429 || msg.includes('quota') || msg.includes('rate_limit') || msg.toLowerCase().includes('rate limit'))
+        throw new Error('Groq 配额已用尽或请求过于频繁，请稍后重试');
       throw new Error(msg);
     }
 
