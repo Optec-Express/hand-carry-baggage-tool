@@ -1275,6 +1275,35 @@ function collectItems() {
   return items;
 }
 
+// When no row has a per-piece weight but an imported total is known, distribute
+// that total proportionally by volume so calculate() has something to work with.
+// Returns [] if weights are already filled in (nothing to estimate) or unknown.
+function collectItemsWithEstimatedWeight() {
+  if (!importedTotalWeightKg) return [];
+  const partial = [];
+  for (const id of rows) {
+    const desc = document.getElementById('d'+id)?.value.trim() || '';
+    const l  = parseFloat(document.getElementById('l'+id)?.value);
+    const w  = parseFloat(document.getElementById('w'+id)?.value);
+    const h  = parseFloat(document.getElementById('h'+id)?.value);
+    const kg = parseFloat(document.getElementById('kg'+id)?.value);
+    const q  = Math.max(1, parseInt(document.getElementById('q'+id)?.value) || 1);
+    if (![l, w, h].every(n => !isNaN(n) && n > 0)) continue;
+    if (!isNaN(kg) && kg > 0) return []; // some rows already have real weight — don't guess
+    partial.push({ desc: desc || '货物', l, w, h, q });
+  }
+  if (!partial.length) return [];
+
+  const totalVolume = partial.reduce((s, it) => s + it.l * it.w * it.h * it.q, 0);
+  if (totalVolume <= 0) return [];
+
+  return partial.map(it => {
+    const groupVolume = it.l * it.w * it.h * it.q;
+    const kg = +(importedTotalWeightKg * groupVolume / totalVolume / it.q).toFixed(2);
+    return { ...it, kg };
+  });
+}
+
 // ─── Cargo summary (live total pieces / weight) ────────────
 // Counts every row that has at least dimensions entered, summing whatever
 // weight values are actually present rather than requiring a fully valid row.
@@ -1698,7 +1727,7 @@ function importOcrItems() {
 }
 
 // ─── Build prompt ─────────────────────────────────────────
-function buildPrompt(items, airlineCode, airlineName, cabin, paxGroups) {
+function buildPrompt(items, airlineCode, airlineName, cabin, paxGroups, weightEstimated) {
   // Summarise cargo: group identical items
   const lines = items.map(it =>
     `${it.q}x ${it.desc || 'carton'} ${it.l}x${it.w}x${it.h}cm ${it.kg}kg`
@@ -1717,11 +1746,15 @@ function buildPrompt(items, airlineCode, airlineName, cabin, paxGroups) {
     ? `\nDifferent passenger groups may have different KNOWN baggage entitlements — where a group specifies a free-bag count or per-bag weight limit, use that EXACT value for that group instead of your own lookup (only fall back to the airline/cabin's standard allowance for groups marked "AI 按航司标准自行判断"). Sum each group's count × its free-bag entitlement to get the party's total free bags, and use each group's own weight limit for its bags when bin-packing.`
     : '';
 
+  const weightNote = weightEstimated
+    ? `\nIMPORTANT: the source document only gave one total shipment weight, not per-box weights — the per-item kg values above were ESTIMATED by distributing that total proportionally by box volume. These are approximations, not measured weights. Say so explicitly in the Chinese "summary" field (e.g. mention 单件重量为按体积估算，非实测), and treat overweight/oversize verdicts as approximate accordingly.`
+    : '';
+
   return `Airline baggage expert task:
 Pack ${totalPcs} pieces for ${totalPax} pax on ${airlineCode} (${airlineName}) ${cabin}.
 Passenger groups: ${groupDesc}
 Cargo: ${lines.join('; ')}
-${overrideNote}
+${overrideNote}${weightNote}
 
 Steps:
 1. Look up ${airlineCode} ${cabin} checked baggage: standard weight/size limits, free bags per pax, excess/overweight fees.
@@ -1741,6 +1774,14 @@ async function calculate() {
     await importPaste();
     items = collectItems();
   }
+  let weightEstimated = false;
+  if (!items.length) {
+    items = collectItemsWithEstimatedWeight();
+    if (items.length) {
+      weightEstimated = true;
+      toast(`未按箱拆分重量，已按体积占比从总重 ${importedTotalWeightKg} kg 估算每件重量用于计算`);
+    }
+  }
   console.log('[2] items:', JSON.stringify(items));
   if (!items.length) { showErr('请至少填写一件货物的完整尺寸和重量'); return; }
 
@@ -1759,7 +1800,7 @@ async function calculate() {
   document.getElementById('calc-btn').disabled = true;
 
   try {
-    const prompt = buildPrompt(items, airlineCode, airlineName, cabin, paxGroups);
+    const prompt = buildPrompt(items, airlineCode, airlineName, cabin, paxGroups, weightEstimated);
     console.log('[4] prompt built, length:', prompt.length);
     const ctrl = new AbortController();
     const timer = setTimeout(() => { console.log('[TIMEOUT] 60s abort fired'); ctrl.abort(); }, 60000);
