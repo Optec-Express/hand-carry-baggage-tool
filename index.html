@@ -1,0 +1,1954 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>手提行李智能计算 | Hand-Carry Optimizer</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:        #EEF2F7;
+  --surface:   #FFFFFF;
+  --border:    #D9E2EE;
+  --border-focus: #1D4ED8;
+  --text:      #111827;
+  --text-2:    #4B5563;
+  --text-3:    #9CA3AF;
+  --accent:    #1D4ED8;
+  --accent-h:  #1E3A8A;
+  --accent-l:  #EFF6FF;
+  --header:    #0B1929;
+  --ok:        #059669;
+  --ok-bg:     #ECFDF5;
+  --warn:      #D97706;
+  --warn-bg:   #FFFBEB;
+  --err:       #DC2626;
+  --err-bg:    #FEF2F2;
+  --mono: 'SF Mono','Cascadia Code','Fira Code',Consolas,monospace;
+  --r: 8px;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13.5px;
+  line-height: 1.55;
+  font-variant-numeric: tabular-nums;
+  min-height: 100vh;
+}
+
+/* ── Header ─────────────────────────────────────────────── */
+.hdr {
+  background: var(--header);
+  border-bottom: 2px solid var(--accent);
+  padding: 0 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 56px;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.hdr-brand {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.hdr-brand .logo {
+  color: #fff;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.hdr-brand .sub {
+  color: #64748B;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.hdr-actions { display: flex; align-items: center; gap: 10px; }
+
+.chip {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 4px 10px;
+  border-radius: 3px;
+  cursor: default;
+}
+
+.chip-airlines {
+  background: rgba(29,78,216,.25);
+  color: #93C5FD;
+}
+
+
+/* ── Layout ──────────────────────────────────────────────── */
+.wrap {
+  max-width: 1160px;
+  margin: 0 auto;
+  padding: 24px 20px 60px;
+}
+
+/* ── Cards ───────────────────────────────────────────────── */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 20px 22px;
+  margin-bottom: 16px;
+}
+
+.card-title {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  margin-bottom: 14px;
+}
+
+/* ── Settings strip ──────────────────────────────────────── */
+.settings-grid {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 14px;
+}
+
+.field { display: flex; flex-direction: column; gap: 5px; }
+
+.field label {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-2);
+  letter-spacing: 0.03em;
+}
+
+.field select, .field input[type=text], .field input[type=password], .field input[type=number] {
+  appearance: none;
+  -webkit-appearance: none;
+  background: var(--bg);
+  border: 1.5px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 13.5px;
+  color: var(--text);
+  font-family: inherit;
+  outline: none;
+  transition: border-color .15s, background .15s;
+  cursor: pointer;
+}
+
+.field select:focus, .field input:focus {
+  border-color: var(--border-focus);
+  background: #fff;
+}
+
+.field select { padding-right: 28px; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%239CA3AF' d='M6 8L1 3h10z'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 10px center; }
+
+/* ── Pax groups ──────────────────────────────────────────── */
+.pax-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.pax-row .field:nth-child(1) { flex: 0 0 84px; }
+.pax-row .field:nth-child(2) { flex: 1 1 0; }
+.pax-row .field:nth-child(3) { flex: 1 1 0; }
+
+.pax-row .del-btn {
+  flex: 0 0 auto;
+  margin-bottom: 3px;
+}
+
+/* ── Tabs ────────────────────────────────────────────────── */
+.tabs {
+  display: flex;
+  gap: 2px;
+  background: var(--bg);
+  border-radius: 6px;
+  padding: 3px;
+  margin-bottom: 16px;
+  width: fit-content;
+}
+
+.tab {
+  padding: 6px 16px;
+  border-radius: 4px;
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  color: var(--text-2);
+  border: none;
+  background: none;
+  font-family: inherit;
+  transition: all .15s;
+}
+
+.tab.active {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 1px 3px rgba(0,0,0,.1);
+}
+
+/* ── Cargo table ─────────────────────────────────────────── */
+.tbl-wrap { overflow-x: auto; }
+
+.cargo-tbl {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.cargo-tbl th {
+  background: var(--bg);
+  padding: 8px 10px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  border-bottom: 1.5px solid var(--border);
+  white-space: nowrap;
+}
+
+.cargo-tbl td {
+  padding: 5px 6px;
+  border-bottom: 1px solid #F1F5F9;
+  vertical-align: middle;
+}
+
+.cargo-tbl tr:last-child td { border-bottom: none; }
+
+.cargo-tbl .rn {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-3);
+  text-align: center;
+  width: 32px;
+}
+
+.cargo-tbl input {
+  width: 100%;
+  background: transparent;
+  border: 1.5px solid transparent;
+  border-radius: 5px;
+  padding: 5px 7px;
+  font-size: 13px;
+  color: var(--text);
+  font-family: inherit;
+  outline: none;
+  transition: border-color .12s, background .12s;
+}
+
+.cargo-tbl input[type=number] {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  text-align: right;
+}
+
+.cargo-tbl input:hover { border-color: var(--border); background: var(--bg); }
+.cargo-tbl input:focus { border-color: var(--border-focus); background: #fff; }
+
+.dim-sep {
+  color: var(--text-3);
+  font-size: 11px;
+  padding: 0 2px;
+  user-select: none;
+}
+
+.dim-cell { display: flex; align-items: center; }
+.dim-cell input { min-width: 52px; }
+
+.del-btn {
+  background: none;
+  border: none;
+  color: var(--text-3);
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 4px;
+  font-size: 14px;
+  line-height: 1;
+  transition: color .12s, background .12s;
+}
+
+.del-btn:hover { color: var(--err); background: var(--err-bg); }
+
+.cargo-summary {
+  margin-top: 10px;
+  padding: 8px 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 12.5px;
+  color: var(--text-2);
+  text-align: right;
+}
+
+.cargo-summary b {
+  font-family: var(--mono);
+  color: var(--text);
+  font-weight: 700;
+}
+
+.add-row {
+  margin-top: 10px;
+  background: none;
+  border: 1.5px dashed var(--border);
+  border-radius: 6px;
+  color: var(--text-3);
+  padding: 7px;
+  width: 100%;
+  cursor: pointer;
+  font-size: 12.5px;
+  font-family: inherit;
+  transition: all .15s;
+}
+
+.add-row:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-l);
+}
+
+/* ── Paste zone ──────────────────────────────────────────── */
+.paste-box {
+  width: 100%;
+  min-height: 140px;
+  background: var(--bg);
+  border: 1.5px dashed var(--border);
+  border-radius: 6px;
+  padding: 12px 14px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-2);
+  resize: vertical;
+  outline: none;
+  transition: border-color .15s, background .15s;
+}
+
+.paste-box:focus { border-color: var(--border-focus); background: #fff; }
+
+.paste-hint {
+  margin-top: 8px;
+  font-size: 11.5px;
+  color: var(--text-3);
+  line-height: 1.6;
+}
+
+.paste-hint code {
+  font-family: var(--mono);
+  background: var(--bg);
+  border-radius: 3px;
+  padding: 1px 5px;
+  color: var(--text-2);
+  font-size: 11px;
+}
+
+.import-btn {
+  margin-top: 10px;
+  background: var(--bg);
+  border: 1.5px solid var(--border);
+  border-radius: 6px;
+  padding: 7px 16px;
+  font-size: 12.5px;
+  font-family: inherit;
+  color: var(--text-2);
+  cursor: pointer;
+  transition: all .15s;
+}
+
+.import-btn:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-l); }
+
+/* ── Sample data ─────────────────────────────────────────── */
+.sample-btn {
+  background: none;
+  border: none;
+  color: var(--text-3);
+  font-size: 11.5px;
+  cursor: pointer;
+  text-decoration: underline;
+  font-family: inherit;
+  margin-left: 8px;
+}
+
+.sample-btn:hover { color: var(--accent); }
+
+/* ── Calculate button ────────────────────────────────────── */
+.calc-wrap { padding: 0; margin-bottom: 16px; }
+
+.calc-btn {
+  width: 100%;
+  padding: 14px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--r);
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  letter-spacing: 0.01em;
+  transition: background .15s, transform .1s, box-shadow .15s;
+  box-shadow: 0 2px 8px rgba(29,78,216,.3);
+}
+
+.calc-btn:hover:not(:disabled) {
+  background: var(--accent-h);
+  box-shadow: 0 4px 14px rgba(29,78,216,.4);
+  transform: translateY(-1px);
+}
+
+.calc-btn:disabled {
+  background: #94A3B8;
+  cursor: not-allowed;
+  box-shadow: none;
+  transform: none;
+}
+
+/* ── Loading ─────────────────────────────────────────────── */
+.loading-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 40px 20px;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.spinner {
+  width: 28px;
+  height: 28px;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin .75s linear infinite;
+}
+
+.loading-card p {
+  color: var(--text-2);
+  font-size: 13.5px;
+}
+
+.loading-card .sub-msg {
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+/* ── Error ───────────────────────────────────────────────── */
+.err-card {
+  background: var(--err-bg);
+  border: 1px solid #FECACA;
+  border-radius: var(--r);
+  padding: 14px 18px;
+  color: #991B1B;
+  font-size: 13.5px;
+  margin-bottom: 16px;
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.err-card::before { content: '✕'; font-weight: 700; flex-shrink: 0; margin-top: 1px; }
+
+/* ── Results ─────────────────────────────────────────────── */
+#results { display: none; }
+
+/* Rules strip */
+.rules-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.rule-block {
+  background: var(--bg);
+  border-radius: 6px;
+  padding: 11px 16px;
+  min-width: 130px;
+  flex: 1;
+}
+
+.rule-block .val {
+  font-family: var(--mono);
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--accent);
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+}
+
+.rule-block .lbl {
+  font-size: 11px;
+  color: var(--text-3);
+  margin-top: 3px;
+  letter-spacing: 0.03em;
+}
+
+.rule-note {
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--text-3);
+  background: var(--bg);
+  padding: 8px 12px;
+  border-radius: 5px;
+  border-left: 3px solid var(--border);
+}
+
+/* AI summary */
+.ai-summary {
+  background: var(--accent-l);
+  border: 1px solid #BFDBFE;
+  border-radius: var(--r);
+  padding: 14px 18px;
+  color: #1E3A8A;
+  font-size: 13.5px;
+  line-height: 1.65;
+  margin-bottom: 16px;
+}
+
+.ai-summary strong { color: #1D4ED8; }
+
+/* Bags grid */
+.bags-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
+  gap: 12px;
+}
+
+.bag-card {
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--border);
+  border-radius: var(--r);
+  padding: 14px 16px;
+  background: var(--surface);
+}
+
+.bag-card.ok   { border-left-color: var(--ok); }
+.bag-card.warn { border-left-color: var(--warn); }
+.bag-card.err  { border-left-color: var(--err); }
+
+.bag-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.bag-num {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--text-2);
+  text-transform: uppercase;
+}
+
+.status-badge {
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 3px;
+  letter-spacing: 0.04em;
+}
+
+.status-badge.ok   { background: var(--ok-bg);   color: #065F46; }
+.status-badge.warn { background: var(--warn-bg);  color: #92400E; }
+.status-badge.err  { background: var(--err-bg);   color: #991B1B; }
+
+.bag-items { margin-bottom: 10px; }
+
+.bag-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 4px 0;
+  border-bottom: 1px solid #F1F5F9;
+  font-size: 12.5px;
+  gap: 8px;
+}
+
+.bag-item:last-child { border-bottom: none; }
+
+.bag-item .iname {
+  color: var(--text-2);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bag-item .iwgt {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--text-3);
+  flex-shrink: 0;
+}
+
+.bag-stats {
+  display: flex;
+  gap: 16px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.bag-stat .v {
+  font-family: var(--mono);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.bag-stat .l {
+  font-size: 10.5px;
+  color: var(--text-3);
+  margin-top: 1px;
+}
+
+.bag-note {
+  margin-top: 6px;
+  font-size: 11.5px;
+  color: var(--warn);
+  font-style: italic;
+}
+
+/* Cost breakdown */
+.cost-body { max-width: 480px; }
+
+.cost-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 9px 0;
+  border-bottom: 1px solid #F1F5F9;
+  font-size: 13.5px;
+  gap: 12px;
+}
+
+.cost-row:last-child { border-bottom: none; }
+.cost-row .cl { color: var(--text-2); }
+.cost-row .cv { font-family: var(--mono); font-weight: 600; color: var(--text); }
+.cost-row.total { border-top: 2px solid var(--border); padding-top: 12px; margin-top: 4px; }
+.cost-row.total .cl { font-weight: 700; color: var(--text); font-size: 14.5px; }
+.cost-row.total .cv { font-size: 18px; color: var(--accent); }
+
+.cost-detail {
+  margin-top: 12px;
+  padding: 10px 12px;
+  background: var(--bg);
+  border-radius: 5px;
+  font-size: 12px;
+  color: var(--text-3);
+  line-height: 1.7;
+}
+
+.disclaimer {
+  margin-top: 12px;
+  font-size: 11.5px;
+  color: var(--text-3);
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+
+/* ── Modal ───────────────────────────────────────────────── */
+.modal-btns {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 4px;
+}
+
+.btn-outline {
+  padding: 8px 18px;
+  border: 1.5px solid var(--border);
+  background: none;
+  color: var(--text-2);
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13.5px;
+  transition: all .15s;
+}
+
+.btn-outline:hover { border-color: var(--accent); color: var(--accent); }
+
+.btn-solid {
+  padding: 8px 18px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  transition: background .15s;
+}
+
+.btn-solid:hover { background: var(--accent-h); }
+
+/* ── Section heading ─────────────────────────────────────── */
+.section-hd {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.section-hd .airline-tag {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  background: var(--accent);
+  color: #fff;
+  padding: 2px 8px;
+  border-radius: 3px;
+}
+
+/* ── OCR / Drop zone ─────────────────────────────────────── */
+.drop-zone {
+  border: 2px dashed var(--border);
+  border-radius: var(--r);
+  padding: 36px 20px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color .15s, background .15s;
+  background: var(--bg);
+  user-select: none;
+}
+
+.drop-zone:hover, .drop-zone.drag-over {
+  border-color: var(--accent);
+  background: var(--accent-l);
+}
+
+.dz-icon { font-size: 34px; margin-bottom: 10px; line-height: 1; }
+
+.dz-text {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-2);
+  margin-bottom: 4px;
+}
+
+.dz-sub { font-size: 12px; color: var(--text-3); }
+
+.ocr-preview-img {
+  max-width: 100%;
+  max-height: 300px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  display: block;
+  object-fit: contain;
+}
+
+.ocr-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+  align-items: center;
+}
+
+.ocr-result-hd {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  margin-bottom: 8px;
+}
+
+.ocr-notes {
+  font-size: 12px;
+  color: var(--text-3);
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  background: var(--bg);
+  border-radius: 5px;
+  border-left: 3px solid var(--border);
+}
+
+.confidence-badge {
+  display: inline-block;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  padding: 2px 7px;
+  border-radius: 3px;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
+.confidence-badge.high { background: var(--ok-bg); color: #065F46; }
+.confidence-badge.medium { background: var(--warn-bg); color: #92400E; }
+.confidence-badge.low { background: var(--err-bg); color: #991B1B; }
+
+/* ── Toast ───────────────────────────────────────────────── */
+.toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  background: #1E293B;
+  color: #E2E8F0;
+  padding: 10px 18px;
+  border-radius: 6px;
+  font-size: 13px;
+  box-shadow: 0 4px 16px rgba(0,0,0,.25);
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity .2s, transform .2s;
+  pointer-events: none;
+  z-index: 9999;
+}
+
+.toast.show { opacity: 1; transform: none; }
+</style>
+</head>
+<body>
+
+<!-- ── API Key Modal ──────────────────────────────────────── -->
+
+<!-- ── Header ─────────────────────────────────────────────── -->
+<header class="hdr">
+  <div class="hdr-brand">
+    <span class="logo">✈&thinsp; 手提行李智能计算</span>
+    <span class="sub">Hand-Carry Optimizer</span>
+  </div>
+  <div class="hdr-actions">
+    <span class="chip chip-airlines">24 Airlines</span>
+    <span id="proxy-status" class="chip" style="background:rgba(255,255,255,.12);color:#9CA3AF;cursor:default" title="代理服务器状态">● 检测中…</span>
+  </div>
+</header>
+
+<!-- ── Main ───────────────────────────────────────────────── -->
+<div class="wrap">
+
+  <!-- Settings -->
+  <div class="card">
+    <div class="card-title">航班参数</div>
+    <div class="settings-grid">
+      <div class="field">
+        <label>目的航空公司</label>
+        <select id="sel-airline">
+          <option value="CX">CX · 国泰航空 — Cathay Pacific</option>
+          <option value="JL">JL · 日本航空 — Japan Airlines</option>
+          <option value="NH">NH · 全日空 — ANA</option>
+          <option value="AA">AA · 美国航空 — American Airlines</option>
+          <option value="UA">UA · 美国联合航空 — United Airlines</option>
+          <option value="TK">TK · 土耳其航空 — Turkish Airlines</option>
+          <option value="QR">QR · 卡塔尔航空 — Qatar Airways</option>
+          <option value="LH">LH · 汉莎航空 — Lufthansa</option>
+          <option value="PR">PR · 菲律宾航空 — Philippine Airlines</option>
+          <option value="SQ">SQ · 新加坡航空 — Singapore Airlines</option>
+          <option value="KE">KE · 大韩航空 — Korean Air</option>
+          <option value="EK">EK · 阿联酋航空 — Emirates</option>
+          <option value="DL">DL · 达美航空 — Delta Air Lines</option>
+          <option value="AC">AC · 加拿大航空 — Air Canada</option>
+          <option value="CA">CA · 中国国际航空 — Air China</option>
+          <option value="CK">CK · 中国货运航空 — China Cargo Airlines</option>
+          <option value="CZ">CZ · 中国南方航空 — China Southern Airlines</option>
+          <option value="CI">CI · 中华航空 — China Airlines</option>
+          <option value="BR">BR · 长荣航空 — EVA Air</option>
+          <option value="OZ">OZ · 韩亚航空 — Asiana Airlines</option>
+          <option value="LX">LX · 瑞士国际航空 — Swiss International</option>
+          <option value="MU">MU · 中国东方航空 — China Eastern Airlines</option>
+          <option value="TG">TG · 泰国国际航空 — Thai Airways</option>
+          <option value="VN">VN · 越南航空 — Vietnam Airlines</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>舱位</label>
+        <select id="sel-class">
+          <option value="经济舱">经济舱 (Economy)</option>
+          <option value="超级经济舱">超级经济舱 (Premium Economy)</option>
+          <option value="商务舱">商务舱 (Business)</option>
+          <option value="头等舱">头等舱 (First Class)</option>
+        </select>
+      </div>
+    </div>
+
+    <div style="margin-top:18px;">
+      <label style="font-size:11.5px; font-weight:600; color:var(--text-2); letter-spacing:.03em;">随行旅客与免费行李额（权益不同的旅客可分组填写）</label>
+      <div id="pax-groups" style="margin-top:10px;"></div>
+      <button class="add-row" onclick="addPaxGroup()">＋ 添加不同权益的旅客</button>
+    </div>
+  </div>
+
+  <!-- Cargo Input -->
+  <div class="card">
+    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
+      <div class="card-title" style="margin-bottom:0;">货物清单</div>
+      <button class="sample-btn" onclick="loadSample()">载入示例数据</button>
+    </div>
+
+    <div class="tabs">
+      <button class="tab active" id="tab-manual" onclick="switchTab('manual')">手动输入</button>
+      <button class="tab" id="tab-paste" onclick="switchTab('paste')">Excel 批量导入</button>
+      <button class="tab" id="tab-ocr" onclick="switchTab('ocr')">截图识别 OCR</button>
+    </div>
+
+    <!-- Manual tab -->
+    <div id="pane-manual">
+      <div class="tbl-wrap">
+        <table class="cargo-tbl">
+          <thead>
+            <tr>
+              <th style="width:32px;">#</th>
+              <th style="min-width:160px;">货物描述</th>
+              <th style="min-width:190px;">尺寸 长×宽×高 (cm)</th>
+              <th style="min-width:90px;">单件重量 (kg)</th>
+              <th style="min-width:60px;">件数</th>
+              <th style="width:36px;"></th>
+            </tr>
+          </thead>
+          <tbody id="tbl-body"></tbody>
+        </table>
+      </div>
+      <div class="rule-note" id="cargo-import-note" style="display:none;"></div>
+      <div class="cargo-summary" id="cargo-summary">合计：<b>0</b> 件 · <b>0.0</b> kg</div>
+      <button class="add-row" onclick="addRow()">＋ 添加货物行</button>
+    </div>
+
+    <!-- Paste tab -->
+    <div id="pane-paste" style="display:none;">
+      <textarea class="paste-box" id="paste-area"
+        placeholder="从 Excel 复制后直接 Ctrl+V 粘贴至此处
+
+格式（制表符分隔）：
+货物描述    长(cm)    宽(cm)    高(cm)    重量(kg)    件数
+
+示例：
+精密仪器    60    40    35    8.5    2
+电子元器件    50    30    25    3.2    5
+工业零件    80    50    40    12    1"></textarea>
+      <p class="paste-hint">
+        列顺序：<code>描述</code> <code>长</code> <code>宽</code> <code>高</code> <code>重量(kg)</code> <code>件数</code>（描述列可省略）<br>
+        从 Excel 框选区域后 Ctrl+C，再 Ctrl+V 粘贴即可，表头行会自动识别并跳过<br>
+        💡 也可直接粘贴装箱单/发票等非表格文本（毛重、净重、计费重量等任意重量表述均可），无法按表格识别时会自动调用 AI 提取
+      </p>
+      <button class="import-btn" id="paste-import-btn" onclick="importPaste()">导入至货物清单 →</button>
+    </div>
+
+    <!-- OCR pane -->
+    <div id="pane-ocr" style="display:none;">
+      <input type="file" id="ocr-file-input" accept="image/*" style="display:none;" onchange="handleFileInput(this)">
+
+      <div class="drop-zone" id="drop-zone"
+           onclick="document.getElementById('ocr-file-input').click()"
+           ondragover="dzDragOver(event)"
+           ondragleave="dzDragLeave(event)"
+           ondrop="dzDrop(event)">
+        <div class="dz-icon">🖼</div>
+        <div class="dz-text">点击上传图片，或拖放截图至此</div>
+        <div class="dz-sub">支持 PNG · JPEG · WEBP &nbsp;·&nbsp; 也可直接 <strong>Ctrl+V</strong> 粘贴截图</div>
+      </div>
+
+      <div id="ocr-preview-wrap" style="display:none;">
+        <img class="ocr-preview-img" id="ocr-preview" src="" alt="预览">
+        <div class="ocr-actions">
+          <button class="calc-btn" id="ocr-btn" onclick="recognizeImage()" style="flex:1; padding:10px 0; font-size:14px;">
+            AI 识别货物信息
+          </button>
+          <button class="btn-outline" onclick="clearOcr()" style="white-space:nowrap;">清除图片</button>
+        </div>
+      </div>
+
+      <div id="ocr-result-area" style="display:none; margin-top:20px;">
+        <div class="ocr-result-hd">识别结果预览 <span id="ocr-confidence-badge"></span></div>
+        <div id="ocr-notes" class="ocr-notes" style="display:none;"></div>
+        <div class="tbl-wrap">
+          <table class="cargo-tbl">
+            <thead>
+              <tr>
+                <th style="width:32px;">#</th>
+                <th style="min-width:150px;">货物描述</th>
+                <th style="min-width:70px;">长 (cm)</th>
+                <th style="min-width:70px;">宽 (cm)</th>
+                <th style="min-width:70px;">高 (cm)</th>
+                <th style="min-width:80px;">重量 (kg)</th>
+                <th style="min-width:60px;">件数</th>
+                <th style="width:36px;"></th>
+              </tr>
+            </thead>
+            <tbody id="ocr-result-body"></tbody>
+          </table>
+        </div>
+        <div style="display:flex; gap:10px; margin-top:12px; align-items:center; flex-wrap:wrap;">
+          <button class="btn-solid" onclick="importOcrItems()">导入至货物清单 →</button>
+          <button class="add-row" onclick="addOcrRow()" style="width:auto; padding:7px 16px;">＋ 手动添加行</button>
+        </div>
+      </div>
+
+      <p class="paste-hint" style="margin-top:14px;">
+        💡 可识别装箱单、发票、手写标签、Excel 截图等，AI 自动提取品名、尺寸、重量、数量，英寸/磅自动换算为 cm/kg
+      </p>
+    </div>
+  </div>
+
+  <!-- Calculate -->
+  <div class="calc-wrap">
+    <button class="calc-btn" id="calc-btn" onclick="calculate()">
+      AI 智能计算最优打包方案
+    </button>
+  </div>
+
+  <!-- Loading -->
+  <div class="card" id="loading-card" style="display:none;">
+    <div class="loading-card">
+      <div class="spinner"></div>
+      <p>AI 正在查询 <strong id="loading-airline"></strong> 行李规则并计算最优装箱方案…</p>
+      <p class="sub-msg">通常需要 10–20 秒，请稍候</p>
+    </div>
+  </div>
+
+  <!-- Error -->
+  <div id="err-box" style="display:none;"></div>
+
+  <!-- Results -->
+  <div id="results">
+
+    <div class="card">
+      <div class="section-hd">
+        航司行李规则
+        <span class="airline-tag" id="res-code"></span>
+        <span style="color:var(--text-3); font-size:12px; font-weight:400;" id="res-class"></span>
+      </div>
+      <div class="rules-strip" id="rules-strip"></div>
+      <div id="rules-note"></div>
+    </div>
+
+    <div class="ai-summary" id="ai-summary" style="display:none;"></div>
+
+    <div class="card">
+      <div class="section-hd">最优打包方案</div>
+      <div class="bags-grid" id="bags-grid"></div>
+    </div>
+
+    <div class="card">
+      <div class="section-hd">费用估算</div>
+      <div class="cost-body">
+        <div id="cost-rows"></div>
+        <div id="cost-detail" class="cost-detail" style="display:none;"></div>
+        <div id="cost-disclaimer" class="disclaimer"></div>
+      </div>
+    </div>
+
+  </div><!-- /results -->
+
+</div><!-- /wrap -->
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ─── State ────────────────────────────────────────────────
+let rows = [];
+let nextId = 1;
+let activeTab = 'manual';
+let paxRows = [];
+let nextPaxId = 1;
+
+// ─── Init ─────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  addRow();
+  addPaxGroup();
+  document.getElementById('tbl-body').addEventListener('input', updateCargoSummary);
+});
+
+// ─── Passenger / free-baggage groups ───────────────────────
+function addPaxGroup(d = {}) {
+  const id = nextPaxId++;
+  paxRows.push(id);
+  const row = document.createElement('div');
+  row.className = 'pax-row';
+  row.id = 'pax' + id;
+  row.innerHTML = `
+    <div class="field">
+      <label>人数</label>
+      <input type="number" id="paxCount${id}" min="1" step="1" value="${d.count || 1}">
+    </div>
+    <div class="field">
+      <label>免费件数 / 人</label>
+      <select id="paxFree${id}">
+        <option value="auto">自动判断</option>
+        <option value="1">1 件</option>
+        <option value="2">2 件</option>
+        <option value="3">3 件</option>
+        <option value="4">4 件</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>每件限重</label>
+      <select id="paxWeight${id}">
+        <option value="auto">自动判断</option>
+        <option value="23">23 kg</option>
+        <option value="32">32 kg</option>
+      </select>
+    </div>
+    <button class="del-btn" onclick="delPaxGroup(${id})" title="删除">✕</button>
+  `;
+  document.getElementById('pax-groups').appendChild(row);
+  if (d.free) document.getElementById('paxFree' + id).value = d.free;
+  if (d.weight) document.getElementById('paxWeight' + id).value = d.weight;
+}
+
+function delPaxGroup(id) {
+  if (paxRows.length <= 1) { toast('至少保留一组旅客'); return; }
+  paxRows = paxRows.filter(x => x !== id);
+  document.getElementById('pax' + id)?.remove();
+}
+
+function collectPaxGroups() {
+  return paxRows.map(id => ({
+    count:  Math.max(1, parseInt(document.getElementById('paxCount' + id)?.value) || 1),
+    free:   document.getElementById('paxFree' + id)?.value || 'auto',
+    weight: document.getElementById('paxWeight' + id)?.value || 'auto'
+  }));
+}
+
+// ─── Toast ────────────────────────────────────────────────
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), 2500);
+}
+
+// ─── JSON 提取（兼容多种 AI 返回格式）────────────────────
+function repairJSON(str) {
+  // Pass 1: escape literal newlines/tabs/CRs inside string values using a state machine
+  let out = '';
+  let inStr = false;
+  let esc = false;
+  for (let i = 0; i < str.length; i++) {
+    const c = str[i];
+    if (esc) { out += c; esc = false; continue; }
+    if (c === '\\' && inStr) { out += c; esc = true; continue; }
+    if (c === '"') { out += c; inStr = !inStr; continue; }
+    if (inStr) {
+      if      (c === '\n') { out += '\\n'; continue; }
+      else if (c === '\r') { out += '\\r'; continue; }
+      else if (c === '\t') { out += '\\t'; continue; }
+    }
+    out += c;
+  }
+  str = out;
+
+  // Pass 2: structural repairs
+  return str
+    .replace(/\/\/[^\n\r]*/g, '')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/,\s*([}\]])/g, '$1')
+    .replace(/([{,]\s*)(['"])?([a-zA-Z_][a-zA-Z0-9_]*)(['"])?\s*:/g,
+             (_, pre, q1, key, q2) => `${pre}"${key}":`)
+    .replace(/:\s*'([^'\\]*(\\.[^'\\]*)*)'/g,
+             (_, v) => ': "' + v.replace(/"/g, '\\"') + '"')
+    .trim();
+}
+
+function tryParse(str) {
+  try { return JSON.parse(str); } catch (_) {}
+  try { return JSON.parse(repairJSON(str)); } catch (e) {
+    throw new Error('JSON 解析失败：' + e.message);
+  }
+}
+
+function extractJSON(text) {
+  // 1. <result>...</result>
+  let m = text.match(/<result>([\s\S]*?)<\/result>/);
+  if (m) return tryParse(m[1].trim());
+
+  // 2. ```json ... ``` 或 ``` ... ```
+  m = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (m) return tryParse(m[1].trim());
+
+  // 3. 直接找最外层 { ... }（贪婪匹配最大 JSON 块）
+  const start = text.indexOf('{');
+  const end   = text.lastIndexOf('}');
+  if (start !== -1 && end > start) {
+    return tryParse(text.slice(start, end + 1));
+  }
+
+  // 把原始内容打印到控制台，方便调试
+  console.error('[RAW AI RESPONSE]', text);
+  throw new Error('AI 返回格式无法识别，请重试');
+}
+
+// ─── Tabs ─────────────────────────────────────────────────
+function switchTab(t) {
+  activeTab = t;
+  ['manual','paste','ocr'].forEach(name => {
+    document.getElementById('tab-' + name)?.classList.toggle('active', t === name);
+    const pane = document.getElementById('pane-' + name);
+    if (pane) pane.style.display = t === name ? '' : 'none';
+  });
+}
+
+// ─── Row management ───────────────────────────────────────
+function addRow(d = {}) {
+  const id = nextId++;
+  rows.push(id);
+  const tr = document.createElement('tr');
+  tr.id = 'r' + id;
+  tr.innerHTML = `
+    <td class="rn" id="rn${id}">${rows.length}</td>
+    <td><input type="text" id="d${id}" placeholder="货物描述（可选）" value="${esc(d.desc||'')}" style="min-width:150px;"></td>
+    <td>
+      <div class="dim-cell">
+        <input type="number" id="l${id}" min="1" placeholder="长" value="${d.l||''}" style="min-width:52px;">
+        <span class="dim-sep">×</span>
+        <input type="number" id="w${id}" min="1" placeholder="宽" value="${d.w||''}" style="min-width:52px;">
+        <span class="dim-sep">×</span>
+        <input type="number" id="h${id}" min="1" placeholder="高" value="${d.h||''}" style="min-width:52px;">
+      </div>
+    </td>
+    <td><input type="number" id="kg${id}" min="0.01" step="0.01" placeholder="0.0" value="${d.kg||''}" style="min-width:80px;"></td>
+    <td><input type="number" id="q${id}" min="1" step="1" placeholder="1" value="${d.q||1}" style="min-width:54px;"></td>
+    <td><button class="del-btn" onclick="delRow(${id})" title="删除">✕</button></td>
+  `;
+  document.getElementById('tbl-body').appendChild(tr);
+  updateCargoSummary();
+}
+
+function delRow(id) {
+  rows = rows.filter(x => x !== id);
+  document.getElementById('r'+id)?.remove();
+  renumber();
+  updateCargoSummary();
+}
+
+// Drop rows where nothing at all has been entered yet (leftover blank placeholder rows)
+function removeEmptyRows() {
+  const toRemove = rows.filter(id => {
+    const desc = document.getElementById('d'+id)?.value.trim();
+    const l  = document.getElementById('l'+id)?.value;
+    const w  = document.getElementById('w'+id)?.value;
+    const h  = document.getElementById('h'+id)?.value;
+    const kg = document.getElementById('kg'+id)?.value;
+    return !desc && !l && !w && !h && !kg;
+  });
+  toRemove.forEach(id => { document.getElementById('r'+id)?.remove(); });
+  rows = rows.filter(id => !toRemove.includes(id));
+  renumber();
+}
+
+function renumber() {
+  rows.forEach((id, i) => {
+    const el = document.getElementById('rn'+id);
+    if (el) el.textContent = i + 1;
+  });
+}
+
+function esc(s) { return String(s).replace(/"/g,'&quot;'); }
+
+// ─── Collect cargo ────────────────────────────────────────
+function collectItems() {
+  const items = [];
+  for (const id of rows) {
+    const desc = document.getElementById('d'+id)?.value.trim() || '';
+    const l  = parseFloat(document.getElementById('l'+id)?.value);
+    const w  = parseFloat(document.getElementById('w'+id)?.value);
+    const h  = parseFloat(document.getElementById('h'+id)?.value);
+    const kg = parseFloat(document.getElementById('kg'+id)?.value);
+    const q  = Math.max(1, parseInt(document.getElementById('q'+id)?.value) || 1);
+    if ([l,w,h,kg].every(n => !isNaN(n) && n > 0)) {
+      items.push({ desc: desc || '货物', l, w, h, kg, q });
+    }
+  }
+  return items;
+}
+
+// ─── Cargo summary (live total pieces / weight) ────────────
+// Counts every row that has at least dimensions entered, summing whatever
+// weight values are actually present rather than requiring a fully valid row.
+function updateCargoSummary() {
+  let totalQty = 0, totalKg = 0, missingWeight = false;
+  for (const id of rows) {
+    const l  = parseFloat(document.getElementById('l'+id)?.value);
+    const w  = parseFloat(document.getElementById('w'+id)?.value);
+    const h  = parseFloat(document.getElementById('h'+id)?.value);
+    const kg = parseFloat(document.getElementById('kg'+id)?.value);
+    const q  = Math.max(1, parseInt(document.getElementById('q'+id)?.value) || 1);
+    const hasDims = [l, w, h].every(n => !isNaN(n) && n > 0);
+    if (!hasDims) continue;
+    totalQty += q;
+    if (!isNaN(kg) && kg > 0) totalKg += kg * q;
+    else missingWeight = true;
+  }
+  const el = document.getElementById('cargo-summary');
+  if (el) el.innerHTML = `合计：<b>${totalQty}</b> 件 · <b>${totalKg.toFixed(1)}</b> kg`
+    + (missingWeight ? ' <span style="color:var(--text-3);">（部分件重量未填）</span>' : '');
+}
+
+// ─── Paste import ─────────────────────────────────────────
+async function importPaste() {
+  const raw = document.getElementById('paste-area').value.trim();
+  if (!raw) { toast('请先粘贴数据'); return; }
+
+  removeEmptyRows();
+  const imported = importTabSeparated(raw);
+  if (imported) {
+    document.getElementById('paste-area').value = '';
+    switchTab('manual');
+    toast(`已导入 ${imported} 行货物数据`);
+    const noteEl = document.getElementById('cargo-import-note');
+    if (noteEl) noteEl.style.display = 'none';
+    return;
+  }
+
+  await importPasteWithAI(raw);
+}
+
+// Plain Excel-style paste: 描述(可选) 长 宽 高 重量(kg) 件数，制表符分隔
+function importTabSeparated(raw) {
+  const lines = raw.split('\n').filter(ln => ln.trim());
+  let imported = 0;
+
+  for (const line of lines) {
+    const cols = line.split('\t').map(c => c.trim()).filter(c => c !== '');
+    if (cols.length < 4) continue;
+
+    // Detect if first col is text (description) or number (length)
+    const firstNum = parseFloat(cols[0].replace(/,/g, ''));
+    const hasDesc = isNaN(firstNum);
+    const off = hasDesc ? 1 : 0;
+
+    // Skip header rows
+    if (isNaN(parseFloat(cols[off])) || isNaN(parseFloat(cols[off+1]))) continue;
+
+    const desc = hasDesc ? cols[0] : '';
+    const l  = parseFloat(cols[off]);
+    const w  = parseFloat(cols[off+1]);
+    const h  = parseFloat(cols[off+2]);
+    const kg = parseFloat(cols[off+3]);
+    const q  = parseInt(cols[off+4]) || 1;
+
+    if ([l,w,h,kg].some(n => isNaN(n) || n <= 0)) continue;
+    addRow({ desc, l, w, h, kg, q });
+    imported++;
+  }
+
+  return imported;
+}
+
+// Freeform freight text (packing list / invoice / AWB excerpt): AI extracts items
+// and infers weight from whatever label is present — Gross/Net/Chargeable Weight,
+// 毛重/净重/计费重量, etc. — distributing totals across per-box dimension groups if needed.
+async function importPasteWithAI(raw) {
+  const btn = document.getElementById('paste-import-btn');
+  const btnOldText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'AI 识别中…';
+
+  const prompt = `Extract cargo/shipment items from this freight/logistics text (packing list, air waybill summary, invoice excerpt, etc., possibly Chinese or English):
+
+"""
+${raw}
+"""
+
+The text may express weight under many different labels: Gross Weight, Net Weight, Chargeable Weight, Actual Weight, Total Weight, 毛重, 净重, 计费重量, 实重, 总重, etc. — recognize any of them. Prefer actual/gross weight over chargeable weight when both are present, since chargeable weight already factors in volumetric weight.
+
+Dimensions are often listed per box group, e.g. "115cm×11cm×12cm/2pc" meaning 2 boxes of that size. Only put a number in an item's kg field if the text actually states a weight for that specific box/group. Do NOT invent, estimate, or split an aggregate total across groups/pieces — that fabricates data the source never gave. If the only weight in the text is one aggregate total for the whole shipment (not broken down per box), leave kg null on every item and instead report that aggregate once as top-level totalWeightKg + totalWeightLabel (the label it was found under, e.g. "Gross Weight"/"毛重").
+
+If NO per-box dimensions are given anywhere (only totals like total packages/cartons, total volume in CBM), still return ONE item per group you can distinguish (or a single item if there's only one total), with l/w/h set to null and q as the piece/carton count. Never invent l/w/h values — leave them null so the user can fill them in manually.
+
+For each item extract:
+- desc: item name/description if given, else empty string ""
+- l, w, h: dimensions in cm (convert inches ×2.54, mm ÷10 if needed); null if genuinely not stated
+- kg: per-piece weight in kg ONLY if the text states it for that specific box/group; null otherwise — never a computed/estimated split of a total
+- q: quantity of that group/carton count
+
+If the text contains no cargo/weight/dimension information whatsoever, return an empty items array.
+
+Reply with ONLY this JSON, no explanation, no markdown:
+{"items":[{"desc":"","l":115,"w":11,"h":12,"kg":6.34,"q":2}],"totalWeightKg":null,"totalWeightLabel":null,"notes":"any assumption made, e.g. dimensions missing and left blank, or a total weight found but not split per box"}`;
+
+  try {
+    const res = await fetch('http://localhost:8765/proxy', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'anthropic-version': '2023-06-01'
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 1000,
+        messages: [{ role: 'user', content: prompt }]
+      })
+    });
+
+    const data = await res.json();
+    if (!res.ok || data.error) {
+      const msg = data.error?.message || `HTTP ${res.status}`;
+      if (res.status === 401 || msg.includes('API key') || msg.includes('key not valid'))
+        throw new Error('API Key 无效，请检查 config.json');
+      if (msg.includes('quota') || msg.includes('RESOURCE_EXHAUSTED'))
+        throw new Error('配额已用尽，请稍后重试');
+      throw new Error(msg);
+    }
+
+    const text = data.content?.[0]?.text || '';
+    if (!text) throw new Error('AI 返回空响应，请重试');
+    const result = extractJSON(text);
+    const isNum = n => typeof n === 'number' && n > 0;
+    const hasAny = it => it && ['l','w','h','kg','q'].some(k => isNum(it[k]));
+    const items = (result.items || []).filter(hasAny);
+
+    if (!items.length) { toast('未能识别有效数据，请检查格式'); return; }
+
+    const missingDims   = items.some(it => !(isNum(it.l) && isNum(it.w) && isNum(it.h)));
+    const missingWeight = items.some(it => !isNum(it.kg));
+    items.forEach(it => addRow({
+      desc: it.desc || '',
+      l: isNum(it.l) ? it.l : '',
+      w: isNum(it.w) ? it.w : '',
+      h: isNum(it.h) ? it.h : '',
+      kg: isNum(it.kg) ? it.kg : '',
+      q: it.q || 1
+    }));
+    document.getElementById('paste-area').value = '';
+    switchTab('manual');
+
+    const notes = [];
+    if (result.notes) notes.push(result.notes);
+    if (isNum(result.totalWeightKg)) notes.push(`原文${result.totalWeightLabel || '总重量'} ${result.totalWeightKg} kg，未按箱拆分到每件`);
+    if (missingDims) notes.push('未给出单箱尺寸，请手动补全长宽高');
+    if (missingWeight && !isNum(result.totalWeightKg)) notes.push('未给出单件重量，请手动填写');
+    toast(`AI 已导入 ${items.length} 行货物数据`);
+
+    const noteEl = document.getElementById('cargo-import-note');
+    if (notes.length) {
+      noteEl.textContent = '📌 ' + notes.join('；');
+      noteEl.style.display = '';
+    } else {
+      noteEl.style.display = 'none';
+    }
+
+  } catch (e) {
+    toast('AI 识别失败：' + (e.message || '网络错误'));
+  } finally {
+    btn.disabled = false;
+    btn.textContent = btnOldText;
+  }
+}
+
+// ─── Sample data ──────────────────────────────────────────
+function loadSample() {
+  // Clear existing rows
+  rows.forEach(id => document.getElementById('r'+id)?.remove());
+  rows = [];
+  const samples = [
+    { desc: '精密仪器', l:60, w:40, h:35, kg:8.5, q:2 },
+    { desc: '电子元器件', l:50, w:30, h:25, kg:3.2, q:5 },
+    { desc: '工业零件', l:80, w:50, h:40, kg:12.0, q:1 },
+    { desc: '样品包装', l:45, w:35, h:20, kg:4.8, q:3 },
+  ];
+  samples.forEach(s => addRow(s));
+  switchTab('manual');
+  const noteEl = document.getElementById('cargo-import-note');
+  if (noteEl) noteEl.style.display = 'none';
+  toast('示例数据已载入');
+}
+
+// ─── OCR ──────────────────────────────────────────────────
+let ocrImageData = null;
+let ocrPendingItems = [];
+
+function handleFileInput(inp) {
+  if (inp.files[0]) handleImageFile(inp.files[0]);
+}
+
+function dzDragOver(e) {
+  e.preventDefault();
+  document.getElementById('drop-zone').classList.add('drag-over');
+}
+
+function dzDragLeave(e) {
+  document.getElementById('drop-zone').classList.remove('drag-over');
+}
+
+function dzDrop(e) {
+  e.preventDefault();
+  document.getElementById('drop-zone').classList.remove('drag-over');
+  const file = e.dataTransfer.files[0];
+  if (file && file.type.startsWith('image/')) handleImageFile(file);
+}
+
+// Ctrl+V paste when OCR tab is active
+document.addEventListener('paste', e => {
+  if (activeTab !== 'ocr') return;
+  const items = Array.from(e.clipboardData.items || []);
+  const imgItem = items.find(it => it.type.startsWith('image/'));
+  if (imgItem) handleImageFile(imgItem.getAsFile());
+});
+
+async function handleImageFile(file) {
+  if (!file) return;
+  const dataUrl = await compressImage(file);
+  if (!dataUrl) { toast('图片读取失败，请重试'); return; }
+  ocrImageData = dataUrl;
+  document.getElementById('ocr-preview').src = dataUrl;
+  document.getElementById('drop-zone').style.display = 'none';
+  document.getElementById('ocr-preview-wrap').style.display = '';
+  document.getElementById('ocr-result-area').style.display = 'none';
+  document.getElementById('ocr-btn').textContent = 'AI 识别货物信息';
+  document.getElementById('ocr-btn').disabled = false;
+}
+
+function clearOcr() {
+  ocrImageData = null;
+  ocrPendingItems = [];
+  document.getElementById('ocr-preview-wrap').style.display = 'none';
+  document.getElementById('drop-zone').style.display = '';
+  document.getElementById('ocr-result-area').style.display = 'none';
+  document.getElementById('ocr-file-input').value = '';
+}
+
+async function compressImage(file) {
+  return new Promise(resolve => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      const MAX = 1920;
+      let { width, height } = img;
+      if (width > MAX || height > MAX) {
+        if (width > height) { height = Math.round(height * MAX / width); width = MAX; }
+        else { width = Math.round(width * MAX / height); height = MAX; }
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = width; canvas.height = height;
+      canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+      URL.revokeObjectURL(url);
+      resolve(canvas.toDataURL('image/jpeg', 0.85));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); resolve(null); };
+    img.src = url;
+  });
+}
+
+async function recognizeImage() {
+  if (!ocrImageData) { toast('请先上传图片'); return; }
+
+  const btn = document.getElementById('ocr-btn');
+  btn.disabled = true;
+  btn.textContent = '识别中…';
+
+  const b64 = ocrImageData.split(',')[1];
+  const mediaType = ocrImageData.match(/^data:(image\/[^;]+)/)?.[1] || 'image/jpeg';
+
+  const ocrPrompt = `Extract all cargo/product information from this image (packing list, invoice, label, spreadsheet, etc.).
+
+For each item extract:
+- desc: product name or description
+- l, w, h: dimensions in cm (convert inches ×2.54, mm ÷10, pounds ÷2.205, grams ÷1000)
+- kg: weight in kg
+- q: quantity (default 1 if not shown)
+
+Use null for any field not found in the image. If no dimensions found at all, return empty items array.
+
+Reply with ONLY this JSON, no explanation, no markdown, no extra text:
+{"items":[{"desc":"name","l":60,"w":40,"h":35,"kg":8.5,"q":1}],"confidence":"high","notes":"any notes about unit conversion or image quality"}`;
+
+  try {
+    const res = await fetch('http://localhost:8765/proxy', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'anthropic-version': '2023-06-01'
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 1000,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: mediaType, data: b64 } },
+            { type: 'text', text: ocrPrompt }
+          ]
+        }]
+      })
+    });
+
+    const data = await res.json();
+    if (!res.ok || data.error) {
+      const msg = data.error?.message || `HTTP ${res.status}`;
+      if (res.status === 401 || msg.includes('API key') || msg.includes('key not valid'))
+        throw new Error('API Key 无效，请检查 config.json');
+      if (msg.includes('quota') || msg.includes('RESOURCE_EXHAUSTED'))
+        throw new Error('Gemini 配额已用尽，请稍后重试');
+      throw new Error(msg);
+    }
+
+    const text = data.content?.[0]?.text || '';
+    if (!text) throw new Error('AI 返回空响应，请重试');
+    const result = extractJSON(text);
+    ocrPendingItems = (result.items || []).filter(it => it !== null);
+    renderOcrResult(ocrPendingItems, result.notes, result.confidence);
+    btn.textContent = '重新识别';
+
+  } catch (e) {
+    toast('识别失败：' + (e.message || '网络错误'));
+    btn.textContent = 'AI 识别货物信息';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function renderOcrResult(items, notes, confidence) {
+  if (!items.length) {
+    toast('未能识别到货物尺寸信息，请确认图片内容并重试');
+    return;
+  }
+
+  // Confidence badge
+  const conf = (confidence || 'medium').toLowerCase();
+  const confLabel = { high: '识别可信度：高', medium: '识别可信度：中', low: '识别可信度：低' }[conf] || '';
+  const badgeEl = document.getElementById('ocr-confidence-badge');
+  badgeEl.className = 'confidence-badge ' + conf;
+  badgeEl.textContent = confLabel;
+
+  // Notes
+  const notesEl = document.getElementById('ocr-notes');
+  if (notes) { notesEl.textContent = '📋 ' + notes; notesEl.style.display = ''; }
+  else { notesEl.style.display = 'none'; }
+
+  // Result table — editable
+  document.getElementById('ocr-result-body').innerHTML = items.map((it, i) => ocrRowHTML(i, it)).join('');
+  document.getElementById('ocr-result-area').style.display = '';
+}
+
+function ocrRowHTML(i, it = {}) {
+  return `<tr>
+    <td class="rn">${i + 1}</td>
+    <td><input type="text" class="ocr-desc" value="${esc(it.desc || '')}" placeholder="货物描述" style="min-width:140px;"></td>
+    <td><input type="number" class="ocr-l" value="${it.l ?? ''}" placeholder="长" min="1" style="min-width:58px;"></td>
+    <td><input type="number" class="ocr-w" value="${it.w ?? ''}" placeholder="宽" min="1" style="min-width:58px;"></td>
+    <td><input type="number" class="ocr-h" value="${it.h ?? ''}" placeholder="高" min="1" style="min-width:58px;"></td>
+    <td><input type="number" class="ocr-kg" value="${it.kg ?? ''}" placeholder="重量" min="0.01" step="0.01" style="min-width:68px;"></td>
+    <td><input type="number" class="ocr-q" value="${it.q ?? 1}" placeholder="1" min="1" style="min-width:50px;"></td>
+    <td><button class="del-btn" onclick="this.closest('tr').remove(); renumberOcr()">✕</button></td>
+  </tr>`;
+}
+
+function addOcrRow() {
+  const tbody = document.getElementById('ocr-result-body');
+  const count = tbody.querySelectorAll('tr').length;
+  tbody.insertAdjacentHTML('beforeend', ocrRowHTML(count));
+}
+
+function renumberOcr() {
+  document.querySelectorAll('#ocr-result-body tr').forEach((tr, i) => {
+    const rn = tr.querySelector('.rn');
+    if (rn) rn.textContent = i + 1;
+  });
+}
+
+function importOcrItems() {
+  const trs = document.querySelectorAll('#ocr-result-body tr');
+  let count = 0;
+  removeEmptyRows();
+  for (const tr of trs) {
+    const desc = tr.querySelector('.ocr-desc')?.value.trim() || '';
+    const l  = parseFloat(tr.querySelector('.ocr-l')?.value);
+    const w  = parseFloat(tr.querySelector('.ocr-w')?.value);
+    const h  = parseFloat(tr.querySelector('.ocr-h')?.value);
+    const kg = parseFloat(tr.querySelector('.ocr-kg')?.value);
+    const q  = parseInt(tr.querySelector('.ocr-q')?.value) || 1;
+    if ([l, w, h, kg].every(n => !isNaN(n) && n > 0)) {
+      addRow({ desc, l, w, h, kg, q });
+      count++;
+    }
+  }
+  if (count) {
+    switchTab('manual');
+    toast(`已导入 ${count} 件货物数据`);
+    clearOcr();
+  } else {
+    toast('没有有效数据，请确认尺寸和重量已填写');
+  }
+}
+
+// ─── Build prompt ─────────────────────────────────────────
+function buildPrompt(items, airlineCode, airlineName, cabin, paxGroups) {
+  // Summarise cargo: group identical items
+  const lines = items.map(it =>
+    `${it.q}x ${it.desc || 'carton'} ${it.l}x${it.w}x${it.h}cm ${it.kg}kg`
+  );
+  const totalPcs = items.reduce((s, it) => s + it.q, 0);
+  const totalPax = paxGroups.reduce((s, g) => s + g.count, 0);
+
+  const groupDesc = paxGroups.map(g => {
+    const freeTxt   = g.free   === 'auto' ? 'AI 按航司标准自行判断免费件数' : `${g.free} 件免费`;
+    const weightTxt = g.weight === 'auto' ? '限重按航司标准判断'           : `每件限重 ${g.weight}kg`;
+    return `${g.count} 人（${freeTxt}，${weightTxt}）`;
+  }).join('; ');
+
+  const hasOverride = paxGroups.some(g => g.free !== 'auto' || g.weight !== 'auto');
+  const overrideNote = hasOverride
+    ? `\nDifferent passenger groups may have different KNOWN baggage entitlements — where a group specifies a free-bag count or per-bag weight limit, use that EXACT value for that group instead of your own lookup (only fall back to the airline/cabin's standard allowance for groups marked "AI 按航司标准自行判断"). Sum each group's count × its free-bag entitlement to get the party's total free bags, and use each group's own weight limit for its bags when bin-packing.`
+    : '';
+
+  return `Airline baggage expert task:
+Pack ${totalPcs} pieces for ${totalPax} pax on ${airlineCode} (${airlineName}) ${cabin}.
+Passenger groups: ${groupDesc}
+Cargo: ${lines.join('; ')}
+${overrideNote}
+
+Steps:
+1. Look up ${airlineCode} ${cabin} checked baggage: standard weight/size limits, free bags per pax, excess/overweight fees.
+2. Compute total free bag allowance for the whole party by summing each passenger group's entitlement (using any group overrides given above).
+3. Bin-pack: each bag ≤ its applicable weight_limit AND linear(L+W+H) ≤ linear_limit.
+4. Cost = bags beyond the total free allowance × excess fee + overweight charges.
+
+Reply ONLY valid JSON, no markdown:
+{"airline_rules":{"airline_code":"${airlineCode}","airline_name_cn":"string","cabin_class":"${cabin}","weight_limit_kg":23,"linear_limit_cm":158,"length_limit_cm":null,"width_limit_cm":null,"height_limit_cm":null,"free_bags_per_pax":1,"excess_bag_fee":"USD 200/bag","overweight_fee":"none","notes":""},"packing_plan":[{"bag_no":1,"items":[{"label":"desc","dims":"LxWxH","weight_kg":0}],"total_weight_kg":0,"linear_cm":0,"overweight":false,"oversize":false,"status":"合规","note":""}],"cost":{"total_bags":1,"free_bags":1,"excess_bags":0,"excess_cost_usd":0,"overweight_cost_usd":0,"oversize_cost_usd":0,"total_usd":0,"details":[""],"disclaimer":"Estimate only"},"summary":"中文摘要"}`;
+}
+
+// ─── Calculate ────────────────────────────────────────────
+async function calculate() {
+  console.log('[1] calculate() started');
+  let items = collectItems();
+  if (!items.length && activeTab === 'paste' && document.getElementById('paste-area').value.trim()) {
+    await importPaste();
+    items = collectItems();
+  }
+  console.log('[2] items:', JSON.stringify(items));
+  if (!items.length) { showErr('请至少填写一件货物的完整尺寸和重量'); return; }
+
+  const airlineEl = document.getElementById('sel-airline');
+  const airlineCode = airlineEl.value;
+  const airlineName = airlineEl.selectedOptions[0].text.split('·')[1]?.trim().split('—')[0].trim() || airlineCode;
+  const cabin = document.getElementById('sel-class').value;
+  const paxGroups = collectPaxGroups();
+  const totalPax = paxGroups.reduce((s, g) => s + g.count, 0);
+  console.log('[3] airline:', airlineCode, 'cabin:', cabin, 'paxGroups:', JSON.stringify(paxGroups));
+
+  document.getElementById('loading-card').style.display = '';
+  document.getElementById('loading-airline').textContent = `${airlineCode} ${airlineName}`;
+  document.getElementById('results').style.display = 'none';
+  document.getElementById('err-box').style.display = 'none';
+  document.getElementById('calc-btn').disabled = true;
+
+  try {
+    const prompt = buildPrompt(items, airlineCode, airlineName, cabin, paxGroups);
+    console.log('[4] prompt built, length:', prompt.length);
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => { console.log('[TIMEOUT] 60s abort fired'); ctrl.abort(); }, 60000);
+    let res;
+    try {
+      console.log('[5] sending fetch...');
+      res = await fetch('http://localhost:8765/proxy', {
+        method: 'POST',
+        signal: ctrl.signal,
+        headers: {
+          'Content-Type': 'application/json',
+          'anthropic-version': '2023-06-01'
+        },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-6',
+          max_tokens: 1500,
+          messages: [{ role: 'user', content: prompt }]
+        })
+      });
+      console.log('[6] fetch returned, status:', res.status);
+    } finally {
+      clearTimeout(timer);
+    }
+
+    const data = await res.json();
+    console.log('[7] data parsed, keys:', Object.keys(data));
+
+    if (!res.ok || data.error) {
+      const msg = data.error?.message || `HTTP ${res.status}`;
+      console.error('[8] error response:', msg);
+      if (res.status === 401 || (msg.includes('API key') || msg.includes('key not valid')))
+        throw new Error('API Key 无效或已过期，请检查 config.json 中的密钥');
+      if (res.status === 429 || msg.includes('quota') || msg.includes('RESOURCE_EXHAUSTED'))
+        throw new Error('Gemini 配额已用尽或请求过于频繁，请稍后重试');
+      throw new Error(msg);
+    }
+
+    const text = data.content?.[0]?.text || '';
+    console.log('[9] text length:', text.length, 'preview:', text.slice(0,100));
+    if (!text) throw new Error('AI 返回空响应，请重试');
+    let parsed;
+    try {
+      parsed = extractJSON(text);
+      console.log('[10] JSON parsed OK, keys:', Object.keys(parsed));
+    } catch (parseErr) {
+      console.error('[PARSE FAIL] raw text:\n', text);
+      throw new Error(parseErr.message + '\n\n原始响应前500字：\n' + text.slice(0, 500));
+    }
+    renderResults(parsed, totalPax);
+    console.log('[11] renderResults done');
+
+  } catch (e) {
+    console.error('[ERR] caught:', e.message, e);
+    showErr(e.message || '未知错误，请检查网络连接后重试');
+  } finally {
+    document.getElementById('loading-card').style.display = 'none';
+    document.getElementById('calc-btn').disabled = false;
+  }
+}
+
+// ─── Render ───────────────────────────────────────────────
+function renderResults(r, totalPax) {
+  if (!r || typeof r !== 'object') throw new Error('AI 返回数据格式错误，请重试');
+  const rules = r.airline_rules || {};
+  const bags  = r.packing_plan  || [];
+  const cost  = r.cost          || {};
+  const summary = r.summary     || '';
+
+  // Header tags
+  document.getElementById('res-code').textContent = rules.airline_code;
+  document.getElementById('res-class').textContent = `${rules.airline_name_cn} · ${rules.cabin_class}`;
+
+  // Rules strip
+  const ruleItems = [
+    { v: `${rules.weight_limit_kg} kg`, l: '每件限重（默认）' },
+    { v: `${rules.linear_limit_cm || '—'} cm`, l: '线性尺寸上限 (L+W+H)' },
+    { v: `${cost.free_bags ?? '—'} 件`, l: `${totalPax} 人合计免费` },
+    { v: rules.excess_bag_fee || '—', l: '超件费率' },
+    { v: rules.overweight_fee || '—', l: '超重费率' },
+  ];
+
+  // If dimension limits exist, add them
+  if (rules.length_limit_cm || rules.width_limit_cm || rules.height_limit_cm) {
+    ruleItems.splice(1, 0,
+      { v: `${rules.length_limit_cm||'—'} cm`, l: '最大长度' },
+      { v: `${rules.width_limit_cm||'—'} cm`,  l: '最大宽度' },
+      { v: `${rules.height_limit_cm||'—'} cm`, l: '最大高度' }
+    );
+  }
+
+  document.getElementById('rules-strip').innerHTML =
+    ruleItems.map(x => `<div class="rule-block"><div class="val">${x.v}</div><div class="lbl">${x.l}</div></div>`).join('');
+
+  const noteEl = document.getElementById('rules-note');
+  noteEl.innerHTML = '';
+  if (rules.notes) {
+    noteEl.innerHTML = `<div class="rule-note">📌 ${rules.notes}</div>`;
+  }
+
+  // Summary
+  const sumEl = document.getElementById('ai-summary');
+  if (summary) {
+    sumEl.textContent = summary;
+    sumEl.style.display = '';
+  } else {
+    sumEl.style.display = 'none';
+  }
+
+  // Bags
+  document.getElementById('bags-grid').innerHTML = bags.map(bag => {
+    const cls = bag.overweight ? 'err' : bag.oversize ? 'warn' : 'ok';
+    const statusText = bag.status || (bag.overweight ? '超重' : bag.oversize ? '超尺寸' : '合规');
+    const itemsHtml = (bag.items || []).map(it =>
+      `<div class="bag-item">
+        <span class="iname">${it.label || it.description || '—'}</span>
+        <span class="iwgt">${it.weight_kg} kg</span>
+      </div>`
+    ).join('');
+    return `
+    <div class="bag-card ${cls}">
+      <div class="bag-head">
+        <span class="bag-num">BAG #${String(bag.bag_no).padStart(2,'0')}</span>
+        <span class="status-badge ${cls}">${statusText}</span>
+      </div>
+      <div class="bag-items">${itemsHtml}</div>
+      <div class="bag-stats">
+        <div class="bag-stat">
+          <div class="v">${bag.total_weight_kg} kg</div>
+          <div class="l">总重量</div>
+        </div>
+        <div class="bag-stat">
+          <div class="v">${bag.linear_cm} cm</div>
+          <div class="l">线性尺寸</div>
+        </div>
+        ${(bag.items||[]).length > 0 ? `<div class="bag-stat">
+          <div class="v">${(bag.items||[]).length}</div>
+          <div class="l">件</div>
+        </div>` : ''}
+      </div>
+      ${bag.note ? `<div class="bag-note">⚠ ${bag.note}</div>` : ''}
+    </div>`;
+  }).join('');
+
+  // Cost
+  const costRows = [
+    { l: '总行李件数', v: `${cost.total_bags} 件` },
+    { l: '免费额度', v: `${cost.free_bags} 件` },
+    { l: '超件数量', v: `${cost.excess_bags} 件` },
+  ];
+  if (cost.excess_cost_usd > 0) costRows.push({ l: '超件费', v: `USD ${cost.excess_cost_usd.toLocaleString()}` });
+  if (cost.overweight_cost_usd > 0) costRows.push({ l: '超重费', v: `USD ${cost.overweight_cost_usd.toLocaleString()}` });
+  if (cost.oversize_cost_usd > 0) costRows.push({ l: '超尺寸费', v: `USD ${cost.oversize_cost_usd.toLocaleString()}` });
+
+  document.getElementById('cost-rows').innerHTML =
+    costRows.map(x => `<div class="cost-row"><span class="cl">${x.l}</span><span class="cv">${x.v}</span></div>`).join('') +
+    `<div class="cost-row total"><span class="cl">预计总费用</span><span class="cv">USD ${(cost.total_usd||0).toLocaleString()}</span></div>`;
+
+  const detailEl = document.getElementById('cost-detail');
+  if (cost.details && cost.details.length) {
+    detailEl.innerHTML = cost.details.map(d => `· ${d}`).join('<br>');
+    detailEl.style.display = '';
+  } else {
+    detailEl.style.display = 'none';
+  }
+
+  document.getElementById('cost-disclaimer').textContent = `⚠ ${cost.disclaimer || '费用仅供参考，以航司实际收取为准'}`;
+
+  document.getElementById('results').style.display = 'block';
+  document.getElementById('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// ─── Error display ────────────────────────────────────────
+function showErr(msg) {
+  const el = document.getElementById('err-box');
+  el.innerHTML = `<div class="err-card">${msg}</div>`;
+  el.style.display = '';
+}
+
+// ─── Proxy health check ───────────────────────────────────
+async function checkProxy() {
+  const el = document.getElementById('proxy-status');
+  try {
+    const ctrl = new AbortController();
+    setTimeout(() => ctrl.abort(), 5000);
+    const r = await fetch('http://localhost:8765/ping', { signal: ctrl.signal });
+    if (r.ok) {
+      el.textContent = '● 代理已连接';
+      el.style.background = 'rgba(5,150,105,.25)';
+      el.style.color = '#6EE7B7';
+    } else {
+      el.textContent = '● 代理异常';
+      el.style.background = 'rgba(220,38,38,.25)';
+      el.style.color = '#FCA5A5';
+    }
+  } catch (e) {
+    el.textContent = '● 代理未连接';
+    el.style.background = 'rgba(220,38,38,.25)';
+    el.style.color = '#FCA5A5';
+    el.title = '请先运行 启动工具.bat，然后刷新此页面';
+  }
+}
+checkProxy();
+</script>
+</body>
+</html>
