@@ -1,4 +1,4 @@
-const GROQ_MODEL = 'meta-llama/llama-4-maverick-17b-128e-instruct';
+const GROQ_MODEL = 'meta-llama/llama-4-scout-17b-16e-instruct';
 const GROQ_ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions';
 
 function toGroq(body) {

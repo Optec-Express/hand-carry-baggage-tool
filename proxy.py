@@ -15,7 +15,7 @@ import re
 import os
 import threading
 
-GROQ_MODEL    = "meta-llama/llama-4-maverick-17b-128e-instruct"
+GROQ_MODEL    = "meta-llama/llama-4-scout-17b-16e-instruct"
 GROQ_ENDPOINT = "https://api.groq.com/openai/v1/chat/completions"
 PORT     = 8765
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
