@@ -1063,6 +1063,7 @@ let nextId = 1;
 let activeTab = 'manual';
 let paxRows = [];
 let nextPaxId = 1;
+let importedTotalWeightKg = null;
 
 // ─── Init ─────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
@@ -1291,9 +1292,15 @@ function updateCargoSummary() {
     if (!isNaN(kg) && kg > 0) totalKg += kg * q;
     else missingWeight = true;
   }
+  let suffix = '';
+  if (totalKg === 0 && missingWeight && importedTotalWeightKg) {
+    totalKg = importedTotalWeightKg;
+    suffix = ' <span style="color:var(--text-3);">（取自原文总重，未按箱拆分）</span>';
+  } else if (missingWeight) {
+    suffix = ' <span style="color:var(--text-3);">（部分件重量未填）</span>';
+  }
   const el = document.getElementById('cargo-summary');
-  if (el) el.innerHTML = `合计：<b>${totalQty}</b> 件 · <b>${totalKg.toFixed(1)}</b> kg`
-    + (missingWeight ? ' <span style="color:var(--text-3);">（部分件重量未填）</span>' : '');
+  if (el) el.innerHTML = `合计：<b>${totalQty}</b> 件 · <b>${totalKg.toFixed(1)}</b> kg` + suffix;
 }
 
 // ─── Paste import ─────────────────────────────────────────
@@ -1302,11 +1309,13 @@ async function importPaste() {
   if (!raw) { toast('请先粘贴数据'); return; }
 
   removeEmptyRows();
+  importedTotalWeightKg = null;
   const imported = importTabSeparated(raw);
   if (imported) {
     document.getElementById('paste-area').value = '';
     switchTab('manual');
     toast(`已导入 ${imported} 行货物数据`);
+    updateCargoSummary();
     const noteEl = document.getElementById('cargo-import-note');
     if (noteEl) noteEl.style.display = 'none';
     return;
@@ -1414,6 +1423,7 @@ Reply with ONLY this JSON, no explanation, no markdown:
 
     const missingDims   = items.some(it => !(isNum(it.l) && isNum(it.w) && isNum(it.h)));
     const missingWeight = items.some(it => !isNum(it.kg));
+    importedTotalWeightKg = isNum(result.totalWeightKg) ? result.totalWeightKg : null;
     items.forEach(it => addRow({
       desc: it.desc || '',
       l: isNum(it.l) ? it.l : '',
@@ -1453,6 +1463,7 @@ function loadSample() {
   // Clear existing rows
   rows.forEach(id => document.getElementById('r'+id)?.remove());
   rows = [];
+  importedTotalWeightKg = null;
   const samples = [
     { desc: '精密仪器', l:60, w:40, h:35, kg:8.5, q:2 },
     { desc: '电子元器件', l:50, w:30, h:25, kg:3.2, q:5 },
