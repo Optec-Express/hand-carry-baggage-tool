@@ -1709,40 +1709,112 @@ function importOcrItems() {
   }
 }
 
-// ─── Build prompt ─────────────────────────────────────────
-function buildPrompt(items, airlineCode, airlineName, cabin, allowance, weightEstimated) {
-  // Summarise cargo: group identical items
-  const lines = items.map(it =>
-    `${it.q}x ${it.desc || 'carton'} ${it.l}x${it.w}x${it.h}cm ${it.kg}kg`
-  );
-  const totalPcs = items.reduce((s, it) => s + it.q, 0);
+// ─── Build prompt (rules lookup ONLY — no packing/arithmetic asked of the AI) ─
+// The model (a small Groq model) proved unreliable at simultaneous bin-packing +
+// arithmetic + JSON formatting — it once literally invented new box dimensions
+// by "merging" cartons, which is physically nonsensical for pre-packed cargo.
+// So the AI's job is now just to recall airline policy numbers; all bin-packing,
+// headcount, and cost math happens deterministically in packCouriers() below.
+function buildLookupPrompt(airlineCode, airlineName, cabin) {
+  return `Look up ${airlineCode} (${airlineName}) checked-baggage policy for a standard (non-elite) passenger in ${cabin}.
 
-  const freeTxt   = allowance.free   === 'auto' ? 'AI 按航司标准自行判断' : `EXACTLY ${allowance.free} 件`;
-  const weightTxt = allowance.weight === 'auto' ? 'AI 按航司标准自行判断' : `EXACTLY ${allowance.weight}kg`;
-
-  const weightNote = weightEstimated
-    ? `\nIMPORTANT: the source document only gave one total shipment weight, not per-box weights — the per-item kg values above were ESTIMATED by distributing that total proportionally by box volume. These are approximations, not measured weights. Say so explicitly in the Chinese "summary" field (e.g. mention 单件重量为按体积估算，非实测), and treat overweight/oversize verdicts as approximate accordingly.`
-    : '';
-
-  return `Airline baggage / OBC hand-carry optimization task.
-
-This is a courier (OBC) business: independent couriers each check in as a normal passenger and carry client cargo as their personal checked baggage. We are NOT given a headcount — figure out the MINIMUM number of couriers needed to carry ALL of the cargo below, on ${airlineCode} (${airlineName}) ${cabin}.
-
-Cargo to carry (must ALL be packed, none left out): ${lines.join('; ')}
-Total pieces to pack: ${totalPcs}
-
-Per courier, each free bag entitlement is: ${freeTxt}. Each bag's weight limit is: ${weightTxt}.
-${weightNote}
-
-Steps:
-1. Look up ${airlineCode} ${cabin} checked baggage: standard weight/size limits per bag, standard free bags per passenger, MAXIMUM total bags a single passenger may check in even by paying excess fees (many airlines cap this, e.g. 9-10 bags/pax — use that as a hard per-courier ceiling; if genuinely no cap exists, use a sensible conservative ceiling), excess-bag fee, overweight fee.
-2. Re-pack the cargo into bags: each bag's weight ≤ weight_limit_kg AND linear(L+W+H) ≤ linear_limit_cm. You may repack/combine/split items across bags differently from how they're listed above, as long as everything is carried and each bag stays within limits.
-3. Distribute those bags across the FEWEST possible couriers, respecting the per-courier max-bags ceiling from step 1. Minimizing courier headcount is the PRIMARY objective (each extra courier costs far more than a few excess-bag fees) — only add a courier when the current one(s) are already at the max-bags ceiling or a bag genuinely can't fit weight/size-wise.
-4. Within that minimum headcount, minimize total excess/overweight cost.
-5. Cost = bags beyond each courier's free allowance × excess fee + overweight charges, summed across all couriers.
+Provide:
+- weight_limit_kg: standard weight limit per checked bag (kg)
+- linear_limit_cm: max linear dimension L+W+H per bag (cm), null if the airline doesn't use this measure
+- length_limit_cm / width_limit_cm / height_limit_cm: individual per-dimension caps if stated, else null
+- free_bags_per_pax: standard number of free checked bags per passenger in this cabin
+- max_bags_per_pax: the MAXIMUM total bags one passenger may check in total, even paying excess fees (many airlines cap this, e.g. 9-10 bags/pax); if genuinely uncapped, use a sensible conservative number like 10
+- excess_bag_fee_usd: your best numeric USD estimate for the flat fee per bag beyond the free allowance
+- overweight_fee_usd: your best numeric USD estimate for the flat surcharge on one overweight bag
+- oversize_fee_usd: your best numeric USD estimate for the flat surcharge on one oversized bag
+- excess_bag_fee_text / overweight_fee_text / oversize_fee_text: short human-readable fee description for display, e.g. "USD 200/bag"
+- notes: short Chinese-only note on anything worth flagging (e.g. fees vary by route/season), empty string if nothing
 
 Reply ONLY valid JSON, no markdown, no explanation:
-{"airline_rules":{"airline_code":"${airlineCode}","airline_name_cn":"string","cabin_class":"${cabin}","weight_limit_kg":23,"linear_limit_cm":158,"length_limit_cm":null,"width_limit_cm":null,"height_limit_cm":null,"free_bags_per_pax":1,"max_bags_per_pax":10,"excess_bag_fee":"USD 200/bag","overweight_fee":"none","notes":""},"couriers":[{"courier_no":1,"bags":[{"bag_no":1,"items":[{"label":"desc","dims":"LxWxH","weight_kg":0}],"total_weight_kg":0,"linear_cm":0,"overweight":false,"oversize":false,"status":"合规","note":""}]}],"cost":{"total_couriers":1,"total_bags":1,"free_bags_used":1,"excess_bags":0,"excess_cost_usd":0,"overweight_cost_usd":0,"oversize_cost_usd":0,"total_usd":0,"details":[""],"disclaimer":"Estimate only"},"summary":"中文摘要，说明共需几位飞人、每人拿几件多重"}`;
+{"airline_code":"${airlineCode}","airline_name_cn":"string","cabin_class":"${cabin}","weight_limit_kg":23,"linear_limit_cm":158,"length_limit_cm":null,"width_limit_cm":null,"height_limit_cm":null,"free_bags_per_pax":1,"max_bags_per_pax":10,"excess_bag_fee_usd":200,"overweight_fee_usd":100,"oversize_fee_usd":150,"excess_bag_fee_text":"USD 200/bag","overweight_fee_text":"USD 100/bag","oversize_fee_text":"USD 150/bag","notes":""}`;
+}
+
+// Deterministic bin-packing: each cargo item is an already-boxed physical piece
+// with FIXED dims/weight — nothing gets reshaped or merged. The only decisions
+// are which courier carries which pieces, capped at max_bags_per_pax each.
+function packCouriers(items, rules, allowance) {
+  const bagWeightLimit = allowance.weight !== 'auto' ? parseFloat(allowance.weight) : rules.weight_limit_kg;
+  const freeBagsPerPax = allowance.free   !== 'auto' ? parseInt(allowance.free)     : (rules.free_bags_per_pax || 1);
+  const maxBagsPerPax  = rules.max_bags_per_pax || 10;
+  const linearLimit    = rules.linear_limit_cm;
+
+  const pieces = [];
+  items.forEach(it => {
+    for (let i = 0; i < it.q; i++) {
+      const linear = it.l + it.w + it.h;
+      const oversize = (linearLimit && linear > linearLimit)
+        || (rules.length_limit_cm && it.l > rules.length_limit_cm)
+        || (rules.width_limit_cm  && it.w > rules.width_limit_cm)
+        || (rules.height_limit_cm && it.h > rules.height_limit_cm);
+      pieces.push({
+        desc: it.desc, l: it.l, w: it.w, h: it.h, kg: it.kg, linear,
+        overweight: it.kg > bagWeightLimit,
+        oversize: !!oversize,
+      });
+    }
+  });
+
+  // Heaviest first so each courier's load is front-loaded and easy to scan
+  pieces.sort((a, b) => b.kg - a.kg);
+
+  const couriers = [];
+  for (let i = 0; i < pieces.length; i += maxBagsPerPax) {
+    const slice = pieces.slice(i, i + maxBagsPerPax);
+    couriers.push({
+      courier_no: couriers.length + 1,
+      bags: slice.map((p, idx) => ({
+        bag_no: idx + 1,
+        items: [{ label: p.desc, dims: `${p.l}x${p.w}x${p.h}`, weight_kg: p.kg }],
+        total_weight_kg: p.kg,
+        linear_cm: p.linear,
+        overweight: p.overweight,
+        oversize: p.oversize,
+        status: p.overweight ? '超重' : (p.oversize ? '超尺寸' : '合规'),
+      }))
+    });
+  }
+
+  const totalBags = pieces.length;
+  const totalCouriers = couriers.length;
+  const freeBagsUsed = Math.min(totalBags, totalCouriers * freeBagsPerPax);
+  const excessBags = Math.max(0, totalBags - totalCouriers * freeBagsPerPax);
+  const overweightCount = pieces.filter(p => p.overweight).length;
+  const oversizeCount = pieces.filter(p => p.oversize).length;
+
+  const excessCost     = excessBags * (rules.excess_bag_fee_usd || 0);
+  const overweightCost = overweightCount * (rules.overweight_fee_usd || 0);
+  const oversizeCost   = oversizeCount * (rules.oversize_fee_usd || 0);
+
+  const details = [];
+  if (excessBags) details.push(`${excessBags} 件超出免费额度，按 ${rules.excess_bag_fee_text || rules.excess_bag_fee_usd + ' USD/件'} 收取`);
+  if (overweightCount) details.push(`${overweightCount} 件超重，按 ${rules.overweight_fee_text || rules.overweight_fee_usd + ' USD/件'} 收取`);
+  if (oversizeCount) details.push(`${oversizeCount} 件超尺寸，按 ${rules.oversize_fee_text || rules.oversize_fee_usd + ' USD/件'} 收取`);
+
+  return {
+    couriers,
+    cost: {
+      total_couriers: totalCouriers,
+      total_bags: totalBags,
+      free_bags_used: freeBagsUsed,
+      excess_bags: excessBags,
+      excess_cost_usd: excessCost,
+      overweight_cost_usd: overweightCost,
+      oversize_cost_usd: oversizeCost,
+      total_usd: excessCost + overweightCost + oversizeCost,
+      details,
+      disclaimer: 'Estimate only — 实际费用以航司柜台核算为准',
+    },
+    summary: `共需要 ${totalCouriers} 位飞人，合计 ${totalBags} 件行李`
+      + (excessBags ? `，其中 ${excessBags} 件超出免费额度` : '')
+      + (overweightCount ? `，${overweightCount} 件超重` : '')
+      + (oversizeCount ? `，${oversizeCount} 件超尺寸` : '')
+      + `，预计总费用 USD ${(excessCost + overweightCost + oversizeCost).toLocaleString()}。`,
+  };
 }
 
 // ─── Calculate ────────────────────────────────────────────
@@ -1778,8 +1850,8 @@ async function calculate() {
   document.getElementById('calc-btn').disabled = true;
 
   try {
-    const prompt = buildPrompt(items, airlineCode, airlineName, cabin, allowance, weightEstimated);
-    console.log('[4] prompt built, length:', prompt.length);
+    const prompt = buildLookupPrompt(airlineCode, airlineName, cabin);
+    console.log('[4] lookup prompt built, length:', prompt.length);
     const ctrl = new AbortController();
     const timer = setTimeout(() => { console.log('[TIMEOUT] 60s abort fired'); ctrl.abort(); }, 60000);
     let res;
@@ -1794,7 +1866,7 @@ async function calculate() {
         },
         body: JSON.stringify({
           model: 'claude-sonnet-4-6',
-          max_tokens: 4000,
+          max_tokens: 1000,
           messages: [{ role: 'user', content: prompt }]
         })
       });
@@ -1819,15 +1891,20 @@ async function calculate() {
     const text = data.content?.[0]?.text || '';
     console.log('[9] text length:', text.length, 'preview:', text.slice(0,100));
     if (!text) throw new Error('AI 返回空响应，请重试');
-    let parsed;
+    let rules;
     try {
-      parsed = extractJSON(text);
-      console.log('[10] JSON parsed OK, keys:', Object.keys(parsed));
+      rules = extractJSON(text);
+      console.log('[10] JSON parsed OK, keys:', Object.keys(rules));
     } catch (parseErr) {
       console.error('[PARSE FAIL] raw text:\n', text);
       throw new Error(parseErr.message + '\n\n原始响应前500字：\n' + text.slice(0, 500));
     }
-    renderResults(parsed);
+
+    const packed = packCouriers(items, rules, allowance);
+    if (weightEstimated) {
+      packed.summary = '单件重量为按体积估算，非实测。' + packed.summary;
+    }
+    renderResults({ airline_rules: rules, ...packed });
     console.log('[11] renderResults done');
 
   } catch (e) {
@@ -1858,8 +1935,9 @@ function renderResults(r) {
     { v: `${rules.linear_limit_cm || '—'} cm`, l: '线性尺寸上限 (L+W+H)' },
     { v: `${rules.free_bags_per_pax ?? '—'} 件`, l: '每人免费件数（默认）' },
     { v: `${rules.max_bags_per_pax ?? '—'} 件`, l: '每人最多可托运件数' },
-    { v: rules.excess_bag_fee || '—', l: '超件费率' },
-    { v: rules.overweight_fee || '—', l: '超重费率' },
+    { v: rules.excess_bag_fee_text || '—', l: '超件费率' },
+    { v: rules.overweight_fee_text || '—', l: '超重费率' },
+    { v: rules.oversize_fee_text || '—', l: '超尺寸费率' },
   ];
 
   // If dimension limits exist, add them
