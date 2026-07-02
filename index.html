@@ -1899,6 +1899,9 @@ async function calculate() {
       console.error('[PARSE FAIL] raw text:\n', text);
       throw new Error(parseErr.message + '\n\n原始响应前500字：\n' + text.slice(0, 500));
     }
+    rules.airline_code = airlineCode;
+    rules.airline_name_cn = airlineName;
+    rules.cabin_class = cabin;
 
     const packed = packCouriers(items, rules, allowance);
     if (weightEstimated) {
