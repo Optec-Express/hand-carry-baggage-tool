@@ -120,7 +120,7 @@ body {
 /* ── Settings strip ──────────────────────────────────────── */
 .settings-grid {
   display: grid;
-  grid-template-columns: 2fr 1fr;
+  grid-template-columns: 1.8fr 1fr 1fr 1fr;
   gap: 14px;
 }
 
@@ -154,23 +154,6 @@ body {
 }
 
 .field select { padding-right: 28px; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%239CA3AF' d='M6 8L1 3h10z'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 10px center; }
-
-/* ── Pax groups ──────────────────────────────────────────── */
-.pax-row {
-  display: flex;
-  align-items: flex-end;
-  gap: 12px;
-  margin-bottom: 10px;
-}
-
-.pax-row .field:nth-child(1) { flex: 0 0 84px; }
-.pax-row .field:nth-child(2) { flex: 1 1 0; }
-.pax-row .field:nth-child(3) { flex: 1 1 0; }
-
-.pax-row .del-btn {
-  flex: 0 0 auto;
-  margin-bottom: 3px;
-}
 
 /* ── Tabs ────────────────────────────────────────────────── */
 .tabs {
@@ -529,6 +512,34 @@ body {
   gap: 12px;
 }
 
+.courier-group + .courier-group { margin-top: 20px; }
+
+.courier-hd {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.courier-hd .courier-num {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  background: var(--text);
+  color: #fff;
+  padding: 2px 8px;
+  border-radius: 3px;
+}
+
+.courier-hd .courier-meta {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-3);
+}
+
 .bag-card {
   border: 1px solid var(--border);
   border-left: 4px solid var(--border);
@@ -882,13 +893,28 @@ body {
           <option value="头等舱">头等舱 (First Class)</option>
         </select>
       </div>
+      <div class="field">
+        <label>每位飞人免费件数</label>
+        <select id="sel-free-bags">
+          <option value="auto">自动判断</option>
+          <option value="1">1 件</option>
+          <option value="2">2 件</option>
+          <option value="3">3 件</option>
+          <option value="4">4 件</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>每件限重</label>
+        <select id="sel-bag-weight">
+          <option value="auto">自动判断</option>
+          <option value="23">23 kg</option>
+          <option value="32">32 kg</option>
+        </select>
+      </div>
     </div>
-
-    <div style="margin-top:18px;">
-      <label style="font-size:11.5px; font-weight:600; color:var(--text-2); letter-spacing:.03em;">随行旅客与免费行李额（权益不同的旅客可分组填写）</label>
-      <div id="pax-groups" style="margin-top:10px;"></div>
-      <button class="add-row" onclick="addPaxGroup()">＋ 添加不同权益的旅客</button>
-    </div>
+    <p class="paste-hint" style="margin-top:10px;">
+      不用填人数——工具会按当前货物清单，倒算最少需要几位飞人、每人拿几件多重
+    </p>
   </div>
 
   <!-- Cargo Input -->
@@ -1037,8 +1063,11 @@ body {
     <div class="ai-summary" id="ai-summary" style="display:none;"></div>
 
     <div class="card">
-      <div class="section-hd">最优打包方案</div>
-      <div class="bags-grid" id="bags-grid"></div>
+      <div class="section-hd">
+        最优打包方案
+        <span class="airline-tag" id="res-couriers" style="background:var(--text);"></span>
+      </div>
+      <div id="bags-grid"></div>
     </div>
 
     <div class="card">
@@ -1061,66 +1090,20 @@ body {
 let rows = [];
 let nextId = 1;
 let activeTab = 'manual';
-let paxRows = [];
-let nextPaxId = 1;
 let importedTotalWeightKg = null;
 
 // ─── Init ─────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   addRow();
-  addPaxGroup();
   document.getElementById('tbl-body').addEventListener('input', updateCargoSummary);
 });
 
-// ─── Passenger / free-baggage groups ───────────────────────
-function addPaxGroup(d = {}) {
-  const id = nextPaxId++;
-  paxRows.push(id);
-  const row = document.createElement('div');
-  row.className = 'pax-row';
-  row.id = 'pax' + id;
-  row.innerHTML = `
-    <div class="field">
-      <label>人数</label>
-      <input type="number" id="paxCount${id}" min="1" step="1" value="${d.count || 1}">
-    </div>
-    <div class="field">
-      <label>免费件数 / 人</label>
-      <select id="paxFree${id}">
-        <option value="auto">自动判断</option>
-        <option value="1">1 件</option>
-        <option value="2">2 件</option>
-        <option value="3">3 件</option>
-        <option value="4">4 件</option>
-      </select>
-    </div>
-    <div class="field">
-      <label>每件限重</label>
-      <select id="paxWeight${id}">
-        <option value="auto">自动判断</option>
-        <option value="23">23 kg</option>
-        <option value="32">32 kg</option>
-      </select>
-    </div>
-    <button class="del-btn" onclick="delPaxGroup(${id})" title="删除">✕</button>
-  `;
-  document.getElementById('pax-groups').appendChild(row);
-  if (d.free) document.getElementById('paxFree' + id).value = d.free;
-  if (d.weight) document.getElementById('paxWeight' + id).value = d.weight;
-}
-
-function delPaxGroup(id) {
-  if (paxRows.length <= 1) { toast('至少保留一组旅客'); return; }
-  paxRows = paxRows.filter(x => x !== id);
-  document.getElementById('pax' + id)?.remove();
-}
-
-function collectPaxGroups() {
-  return paxRows.map(id => ({
-    count:  Math.max(1, parseInt(document.getElementById('paxCount' + id)?.value) || 1),
-    free:   document.getElementById('paxFree' + id)?.value || 'auto',
-    weight: document.getElementById('paxWeight' + id)?.value || 'auto'
-  }));
+// Per-courier baggage assumption (headcount itself is now an output, not an input)
+function getCourierAllowance() {
+  return {
+    free:   document.getElementById('sel-free-bags').value,
+    weight: document.getElementById('sel-bag-weight').value
+  };
 }
 
 // ─── Toast ────────────────────────────────────────────────
@@ -1727,49 +1710,39 @@ function importOcrItems() {
 }
 
 // ─── Build prompt ─────────────────────────────────────────
-function buildPrompt(items, airlineCode, airlineName, cabin, paxGroups, weightEstimated) {
+function buildPrompt(items, airlineCode, airlineName, cabin, allowance, weightEstimated) {
   // Summarise cargo: group identical items
   const lines = items.map(it =>
     `${it.q}x ${it.desc || 'carton'} ${it.l}x${it.w}x${it.h}cm ${it.kg}kg`
   );
   const totalPcs = items.reduce((s, it) => s + it.q, 0);
-  const totalPax = paxGroups.reduce((s, g) => s + g.count, 0);
 
-  const groupDesc = paxGroups.map(g => {
-    const freeTxt   = g.free   === 'auto' ? 'AI 按航司标准自行判断免费件数' : `${g.free} 件免费`;
-    const weightTxt = g.weight === 'auto' ? '限重按航司标准判断'           : `每件限重 ${g.weight}kg`;
-    return `${g.count} 人（${freeTxt}，${weightTxt}）`;
-  }).join('; ');
-
-  const hasOverride = paxGroups.some(g => g.free !== 'auto' || g.weight !== 'auto');
-  const knownFreeBags = paxGroups
-    .filter(g => g.free !== 'auto')
-    .reduce((s, g) => s + g.count * parseInt(g.free), 0);
-  const autoPaxCount = paxGroups
-    .filter(g => g.free === 'auto')
-    .reduce((s, g) => s + g.count, 0);
-  const overrideNote = hasOverride
-    ? `\nDifferent passenger groups may have different KNOWN baggage entitlements — where a group specifies a free-bag count or per-bag weight limit, use that EXACT value for that group instead of your own lookup (only fall back to the airline/cabin's standard allowance for groups marked "AI 按航司标准自行判断"). The groups with a known entitlement already total EXACTLY ${knownFreeBags} free bags (this is pre-computed, do not recompute it)${autoPaxCount ? ` — add to that whatever your own standard per-pax free-bag lookup gives for the remaining ${autoPaxCount} pax marked "自动判断", and report that grand total as cost.free_bags` : ' — report cost.free_bags as exactly ' + knownFreeBags}. Use each group's own weight limit for its bags when bin-packing.`
-    : '';
+  const freeTxt   = allowance.free   === 'auto' ? 'AI 按航司标准自行判断' : `EXACTLY ${allowance.free} 件`;
+  const weightTxt = allowance.weight === 'auto' ? 'AI 按航司标准自行判断' : `EXACTLY ${allowance.weight}kg`;
 
   const weightNote = weightEstimated
     ? `\nIMPORTANT: the source document only gave one total shipment weight, not per-box weights — the per-item kg values above were ESTIMATED by distributing that total proportionally by box volume. These are approximations, not measured weights. Say so explicitly in the Chinese "summary" field (e.g. mention 单件重量为按体积估算，非实测), and treat overweight/oversize verdicts as approximate accordingly.`
     : '';
 
-  return `Airline baggage expert task:
-Pack ${totalPcs} pieces for ${totalPax} pax on ${airlineCode} (${airlineName}) ${cabin}.
-Passenger groups: ${groupDesc}
-Cargo: ${lines.join('; ')}
-${overrideNote}${weightNote}
+  return `Airline baggage / OBC hand-carry optimization task.
+
+This is a courier (OBC) business: independent couriers each check in as a normal passenger and carry client cargo as their personal checked baggage. We are NOT given a headcount — figure out the MINIMUM number of couriers needed to carry ALL of the cargo below, on ${airlineCode} (${airlineName}) ${cabin}.
+
+Cargo to carry (must ALL be packed, none left out): ${lines.join('; ')}
+Total pieces to pack: ${totalPcs}
+
+Per courier, each free bag entitlement is: ${freeTxt}. Each bag's weight limit is: ${weightTxt}.
+${weightNote}
 
 Steps:
-1. Look up ${airlineCode} ${cabin} checked baggage: standard weight/size limits, free bags per pax, excess/overweight fees.
-2. Compute total free bag allowance for the whole party by summing each passenger group's entitlement (using any group overrides given above).
-3. Bin-pack: each bag ≤ its applicable weight_limit AND linear(L+W+H) ≤ linear_limit.
-4. Cost = bags beyond the total free allowance × excess fee + overweight charges.
+1. Look up ${airlineCode} ${cabin} checked baggage: standard weight/size limits per bag, standard free bags per passenger, MAXIMUM total bags a single passenger may check in even by paying excess fees (many airlines cap this, e.g. 9-10 bags/pax — use that as a hard per-courier ceiling; if genuinely no cap exists, use a sensible conservative ceiling), excess-bag fee, overweight fee.
+2. Re-pack the cargo into bags: each bag's weight ≤ weight_limit_kg AND linear(L+W+H) ≤ linear_limit_cm. You may repack/combine/split items across bags differently from how they're listed above, as long as everything is carried and each bag stays within limits.
+3. Distribute those bags across the FEWEST possible couriers, respecting the per-courier max-bags ceiling from step 1. Minimizing courier headcount is the PRIMARY objective (each extra courier costs far more than a few excess-bag fees) — only add a courier when the current one(s) are already at the max-bags ceiling or a bag genuinely can't fit weight/size-wise.
+4. Within that minimum headcount, minimize total excess/overweight cost.
+5. Cost = bags beyond each courier's free allowance × excess fee + overweight charges, summed across all couriers.
 
-Reply ONLY valid JSON, no markdown:
-{"airline_rules":{"airline_code":"${airlineCode}","airline_name_cn":"string","cabin_class":"${cabin}","weight_limit_kg":23,"linear_limit_cm":158,"length_limit_cm":null,"width_limit_cm":null,"height_limit_cm":null,"free_bags_per_pax":1,"excess_bag_fee":"USD 200/bag","overweight_fee":"none","notes":""},"packing_plan":[{"bag_no":1,"items":[{"label":"desc","dims":"LxWxH","weight_kg":0}],"total_weight_kg":0,"linear_cm":0,"overweight":false,"oversize":false,"status":"合规","note":""}],"cost":{"total_bags":1,"free_bags":1,"excess_bags":0,"excess_cost_usd":0,"overweight_cost_usd":0,"oversize_cost_usd":0,"total_usd":0,"details":[""],"disclaimer":"Estimate only"},"summary":"中文摘要"}`;
+Reply ONLY valid JSON, no markdown, no explanation:
+{"airline_rules":{"airline_code":"${airlineCode}","airline_name_cn":"string","cabin_class":"${cabin}","weight_limit_kg":23,"linear_limit_cm":158,"length_limit_cm":null,"width_limit_cm":null,"height_limit_cm":null,"free_bags_per_pax":1,"max_bags_per_pax":10,"excess_bag_fee":"USD 200/bag","overweight_fee":"none","notes":""},"couriers":[{"courier_no":1,"bags":[{"bag_no":1,"items":[{"label":"desc","dims":"LxWxH","weight_kg":0}],"total_weight_kg":0,"linear_cm":0,"overweight":false,"oversize":false,"status":"合规","note":""}]}],"cost":{"total_couriers":1,"total_bags":1,"free_bags_used":1,"excess_bags":0,"excess_cost_usd":0,"overweight_cost_usd":0,"oversize_cost_usd":0,"total_usd":0,"details":[""],"disclaimer":"Estimate only"},"summary":"中文摘要，说明共需几位飞人、每人拿几件多重"}`;
 }
 
 // ─── Calculate ────────────────────────────────────────────
@@ -1795,9 +1768,8 @@ async function calculate() {
   const airlineCode = airlineEl.value;
   const airlineName = airlineEl.selectedOptions[0].text.split('·')[1]?.trim().split('—')[0].trim() || airlineCode;
   const cabin = document.getElementById('sel-class').value;
-  const paxGroups = collectPaxGroups();
-  const totalPax = paxGroups.reduce((s, g) => s + g.count, 0);
-  console.log('[3] airline:', airlineCode, 'cabin:', cabin, 'paxGroups:', JSON.stringify(paxGroups));
+  const allowance = getCourierAllowance();
+  console.log('[3] airline:', airlineCode, 'cabin:', cabin, 'allowance:', JSON.stringify(allowance));
 
   document.getElementById('loading-card').style.display = '';
   document.getElementById('loading-airline').textContent = `${airlineCode} ${airlineName}`;
@@ -1806,7 +1778,7 @@ async function calculate() {
   document.getElementById('calc-btn').disabled = true;
 
   try {
-    const prompt = buildPrompt(items, airlineCode, airlineName, cabin, paxGroups, weightEstimated);
+    const prompt = buildPrompt(items, airlineCode, airlineName, cabin, allowance, weightEstimated);
     console.log('[4] prompt built, length:', prompt.length);
     const ctrl = new AbortController();
     const timer = setTimeout(() => { console.log('[TIMEOUT] 60s abort fired'); ctrl.abort(); }, 60000);
@@ -1822,7 +1794,7 @@ async function calculate() {
         },
         body: JSON.stringify({
           model: 'claude-sonnet-4-6',
-          max_tokens: 1500,
+          max_tokens: 4000,
           messages: [{ role: 'user', content: prompt }]
         })
       });
@@ -1855,7 +1827,7 @@ async function calculate() {
       console.error('[PARSE FAIL] raw text:\n', text);
       throw new Error(parseErr.message + '\n\n原始响应前500字：\n' + text.slice(0, 500));
     }
-    renderResults(parsed, totalPax, paxGroups);
+    renderResults(parsed);
     console.log('[11] renderResults done');
 
   } catch (e) {
@@ -1868,38 +1840,24 @@ async function calculate() {
 }
 
 // ─── Render ───────────────────────────────────────────────
-function renderResults(r, totalPax, paxGroups) {
+function renderResults(r) {
   if (!r || typeof r !== 'object') throw new Error('AI 返回数据格式错误，请重试');
-  const rules = r.airline_rules || {};
-  const bags  = r.packing_plan  || [];
-  const cost  = r.cost          || {};
-  const summary = r.summary     || '';
+  const rules    = r.airline_rules || {};
+  const couriers = r.couriers      || [];
+  const cost     = r.cost          || {};
+  const summary  = r.summary       || '';
 
   // Header tags
   document.getElementById('res-code').textContent = rules.airline_code;
   document.getElementById('res-class').textContent = `${rules.airline_name_cn} · ${rules.cabin_class}`;
-
-  // Free-bag total: compute deterministically from any explicit (non-auto)
-  // pax-group overrides rather than trusting the AI's arithmetic; only fall
-  // back to the AI-reported total for groups left on "自动判断".
-  const knownGroups = (paxGroups || []).filter(g => g.free !== 'auto');
-  const autoGroups  = (paxGroups || []).filter(g => g.free === 'auto');
-  const knownFreeBags = knownGroups.reduce((s, g) => s + g.count * parseInt(g.free), 0);
-  let freeBagsDisplay;
-  if (!autoGroups.length) {
-    freeBagsDisplay = knownFreeBags;
-  } else if (typeof cost.free_bags === 'number') {
-    freeBagsDisplay = cost.free_bags;
-  } else {
-    const fallbackPerPax = rules.free_bags_per_pax ?? 1;
-    freeBagsDisplay = knownFreeBags + autoGroups.reduce((s, g) => s + g.count * fallbackPerPax, 0);
-  }
+  document.getElementById('res-couriers').textContent = `共需 ${cost.total_couriers ?? couriers.length} 位飞人`;
 
   // Rules strip
   const ruleItems = [
     { v: `${rules.weight_limit_kg} kg`, l: '每件限重（默认）' },
     { v: `${rules.linear_limit_cm || '—'} cm`, l: '线性尺寸上限 (L+W+H)' },
-    { v: `${freeBagsDisplay} 件`, l: `${totalPax} 人合计免费` },
+    { v: `${rules.free_bags_per_pax ?? '—'} 件`, l: '每人免费件数（默认）' },
+    { v: `${rules.max_bags_per_pax ?? '—'} 件`, l: '每人最多可托运件数' },
     { v: rules.excess_bag_fee || '—', l: '超件费率' },
     { v: rules.overweight_fee || '—', l: '超重费率' },
   ];
@@ -1931,45 +1889,60 @@ function renderResults(r, totalPax, paxGroups) {
     sumEl.style.display = 'none';
   }
 
-  // Bags
-  document.getElementById('bags-grid').innerHTML = bags.map(bag => {
-    const cls = bag.overweight ? 'err' : bag.oversize ? 'warn' : 'ok';
-    const statusText = bag.status || (bag.overweight ? '超重' : bag.oversize ? '超尺寸' : '合规');
-    const itemsHtml = (bag.items || []).map(it =>
-      `<div class="bag-item">
-        <span class="iname">${it.label || it.description || '—'}</span>
-        <span class="iwgt">${it.weight_kg} kg</span>
-      </div>`
-    ).join('');
+  // Couriers, each with their own bags-grid
+  document.getElementById('bags-grid').innerHTML = couriers.map(courier => {
+    const bags = courier.bags || [];
+    const totalWeight = bags.reduce((s, b) => s + (b.total_weight_kg || 0), 0);
+
+    const bagsHtml = bags.map(bag => {
+      const cls = bag.overweight ? 'err' : bag.oversize ? 'warn' : 'ok';
+      const statusText = bag.status || (bag.overweight ? '超重' : bag.oversize ? '超尺寸' : '合规');
+      const itemsHtml = (bag.items || []).map(it =>
+        `<div class="bag-item">
+          <span class="iname">${it.label || it.description || '—'}</span>
+          <span class="iwgt">${it.weight_kg} kg</span>
+        </div>`
+      ).join('');
+      return `
+      <div class="bag-card ${cls}">
+        <div class="bag-head">
+          <span class="bag-num">BAG #${String(bag.bag_no).padStart(2,'0')}</span>
+          <span class="status-badge ${cls}">${statusText}</span>
+        </div>
+        <div class="bag-items">${itemsHtml}</div>
+        <div class="bag-stats">
+          <div class="bag-stat">
+            <div class="v">${bag.total_weight_kg} kg</div>
+            <div class="l">总重量</div>
+          </div>
+          <div class="bag-stat">
+            <div class="v">${bag.linear_cm} cm</div>
+            <div class="l">线性尺寸</div>
+          </div>
+          ${(bag.items||[]).length > 0 ? `<div class="bag-stat">
+            <div class="v">${(bag.items||[]).length}</div>
+            <div class="l">件</div>
+          </div>` : ''}
+        </div>
+        ${bag.note ? `<div class="bag-note">⚠ ${bag.note}</div>` : ''}
+      </div>`;
+    }).join('');
+
     return `
-    <div class="bag-card ${cls}">
-      <div class="bag-head">
-        <span class="bag-num">BAG #${String(bag.bag_no).padStart(2,'0')}</span>
-        <span class="status-badge ${cls}">${statusText}</span>
+    <div class="courier-group">
+      <div class="courier-hd">
+        <span class="courier-num">飞人 ${courier.courier_no}</span>
+        <span class="courier-meta">${bags.length} 件 · ${totalWeight.toFixed(1)} kg</span>
       </div>
-      <div class="bag-items">${itemsHtml}</div>
-      <div class="bag-stats">
-        <div class="bag-stat">
-          <div class="v">${bag.total_weight_kg} kg</div>
-          <div class="l">总重量</div>
-        </div>
-        <div class="bag-stat">
-          <div class="v">${bag.linear_cm} cm</div>
-          <div class="l">线性尺寸</div>
-        </div>
-        ${(bag.items||[]).length > 0 ? `<div class="bag-stat">
-          <div class="v">${(bag.items||[]).length}</div>
-          <div class="l">件</div>
-        </div>` : ''}
-      </div>
-      ${bag.note ? `<div class="bag-note">⚠ ${bag.note}</div>` : ''}
+      <div class="bags-grid">${bagsHtml}</div>
     </div>`;
   }).join('');
 
   // Cost
   const costRows = [
+    { l: '所需飞人', v: `${cost.total_couriers ?? couriers.length} 人` },
     { l: '总行李件数', v: `${cost.total_bags} 件` },
-    { l: '免费额度', v: `${cost.free_bags} 件` },
+    { l: '免费额度', v: `${cost.free_bags_used ?? cost.free_bags} 件` },
     { l: '超件数量', v: `${cost.excess_bags} 件` },
   ];
   if (cost.excess_cost_usd > 0) costRows.push({ l: '超件费', v: `USD ${cost.excess_cost_usd.toLocaleString()}` });
