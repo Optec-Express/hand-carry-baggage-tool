@@ -1295,7 +1295,7 @@ function updateCargoSummary() {
   let suffix = '';
   if (totalKg === 0 && missingWeight && importedTotalWeightKg) {
     totalKg = importedTotalWeightKg;
-    suffix = ' <span style="color:var(--text-3);">（取自原文总重，未按箱拆分）</span>';
+    suffix = ' <span style="color:var(--text-3);">（取自原文总毛重，未按箱拆分）</span>';
   } else if (missingWeight) {
     suffix = ' <span style="color:var(--text-3);">（部分件重量未填）</span>';
   }
@@ -1373,7 +1373,7 @@ ${raw}
 
 The text may express weight under many different labels: Gross Weight, Net Weight, Chargeable Weight, Actual Weight, Total Weight, 毛重, 净重, 计费重量, 实重, 总重, etc. — recognize any of them. Prefer actual/gross weight over chargeable weight when both are present, since chargeable weight already factors in volumetric weight.
 
-Dimensions are often listed per box group, e.g. "115cm×11cm×12cm/2pc" meaning 2 boxes of that size. Only put a number in an item's kg field if the text actually states a weight for that specific box/group. Do NOT invent, estimate, or split an aggregate total across groups/pieces — that fabricates data the source never gave. If the only weight in the text is one aggregate total for the whole shipment (not broken down per box), leave kg null on every item and instead report that aggregate once as top-level totalWeightKg + totalWeightLabel (the label it was found under, e.g. "Gross Weight"/"毛重").
+Dimensions are often listed per box group, e.g. "115cm×11cm×12cm/2pc" meaning 2 boxes of that size. Only put a number in an item's kg field if the text actually states a weight for that specific box/group. Do NOT invent, estimate, or split an aggregate total across groups/pieces — that fabricates data the source never gave. If the only weight in the text is one aggregate total for the whole shipment (not broken down per box), leave kg null on every item and instead report that number once as top-level totalWeightKg.
 
 If NO per-box dimensions are given anywhere (only totals like total packages/cartons, total volume in CBM), still return ONE item per group you can distinguish (or a single item if there's only one total), with l/w/h set to null and q as the piece/carton count. Never invent l/w/h values — leave them null so the user can fill them in manually.
 
@@ -1385,8 +1385,10 @@ For each item extract:
 
 If the text contains no cargo/weight/dimension information whatsoever, return an empty items array.
 
+The "notes" field, if used, MUST be written in Chinese only (no English words at all). Keep it short, or use an empty string if there's nothing worth flagging beyond the totalWeightKg case above.
+
 Reply with ONLY this JSON, no explanation, no markdown:
-{"items":[{"desc":"","l":115,"w":11,"h":12,"kg":6.34,"q":2}],"totalWeightKg":null,"totalWeightLabel":null,"notes":"any assumption made, e.g. dimensions missing and left blank, or a total weight found but not split per box"}`;
+{"items":[{"desc":"","l":115,"w":11,"h":12,"kg":6.34,"q":2}],"totalWeightKg":null,"notes":""}`;
 
   try {
     const res = await fetch('/api/proxy', {
@@ -1437,7 +1439,7 @@ Reply with ONLY this JSON, no explanation, no markdown:
 
     const notes = [];
     if (result.notes) notes.push(result.notes);
-    if (isNum(result.totalWeightKg)) notes.push(`原文${result.totalWeightLabel || '总重量'} ${result.totalWeightKg} kg，未按箱拆分到每件`);
+    if (isNum(result.totalWeightKg)) notes.push(`原文总毛重 ${result.totalWeightKg} kg，未按箱拆分到每件`);
     if (missingDims) notes.push('未给出单箱尺寸，请手动补全长宽高');
     if (missingWeight && !isNum(result.totalWeightKg)) notes.push('未给出单件重量，请手动填写');
     toast(`AI 已导入 ${items.length} 行货物数据`);
