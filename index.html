@@ -504,11 +504,10 @@ body {
 .rule-group {
   display: flex;
   flex-wrap: nowrap;
+  flex-shrink: 0;
   gap: 2px;
-  flex: 1 1 260px;
   border-left: 3px solid var(--border);
   border-radius: 0 6px 6px 0;
-  overflow: hidden;
 }
 .rule-group.group-max    { border-left-color: var(--err); }
 .rule-group.group-ticket { border-left-color: var(--ok); }
@@ -516,10 +515,10 @@ body {
 .rule-group .rule-block  { border-radius: 0; }
 
 .rule-block.maxbags-block {
-  height: 100%;
-  display: flex;
+  display: inline-flex;
   flex-direction: column;
   justify-content: center;
+  min-width: 220px;
   border: 1.5px dashed var(--border);
   background: #fff;
 }
@@ -1120,10 +1119,8 @@ body {
         <span style="color:var(--text-3); font-size:12px; font-weight:400;" id="res-class"></span>
         <a id="res-baggage-link" href="#" target="_blank" rel="noopener" style="display:none; margin-left:auto; font-size:12px; font-weight:400; color:var(--accent);">查看航司官方行李规定 →</a>
       </div>
-      <div style="display:flex; gap:14px; align-items:stretch;">
-        <div class="rules-strip" id="rules-strip" style="flex:1;"></div>
-        <div id="rules-maxbags" style="flex:0 0 150px;"></div>
-      </div>
+      <div class="rules-strip" id="rules-strip"></div>
+      <div id="rules-maxbags" style="margin-top:10px;"></div>
       <div style="display:flex; align-items:center; gap:10px; margin-top:10px;">
         <span style="font-size:11.5px; color:var(--text-3);">以上数值可能与实际不符，可手动修改后重新计算</span>
         <button class="btn-outline" style="margin-left:auto; padding:6px 14px; font-size:12.5px;" onclick="recalc()">重新计算</button>
@@ -2130,7 +2127,7 @@ function renderResults(r) {
     + group('group-fee', renderGroup(feeGroup));
 
   document.getElementById('rules-maxbags').innerHTML =
-    `<div class="rule-block maxbags-block"><input type="number" id="rule-maxbags" value="${rules.max_bags_per_pax ?? ''}"><div class="lbl">每人最多可托运件数（人工核实）</div></div>`;
+    `<div class="rule-block maxbags-block"><input type="number" id="rule-maxbags" value="${rules.max_bags_per_pax ?? 0}"><div class="lbl">每人最多可托运件数（人工核实）</div></div>`;
 
   const noteEl = document.getElementById('rules-note');
   noteEl.innerHTML = '';
