@@ -1814,9 +1814,9 @@ Reply ONLY valid JSON, no markdown, no explanation:
 // Deterministic bin-packing: each cargo item is an already-boxed physical piece
 // with FIXED dims/weight — nothing gets reshaped or merged. The only decisions
 // are which courier carries which pieces, capped at max_bags_per_pax each.
-function packCouriers(items, rules, allowance) {
-  const bagWeightLimit = allowance.weight !== 'auto' ? parseFloat(allowance.weight) : rules.weight_limit_kg;
-  const freeBagsPerPax = allowance.free   !== 'auto' ? parseInt(allowance.free)     : (rules.free_bags_per_pax || 1);
+function packCouriers(items, rules) {
+  const bagWeightLimit = rules.weight_limit_kg;
+  const freeBagsPerPax = rules.free_bags_per_pax || 1;
   const maxBagsPerPax  = rules.max_bags_per_pax || 10;
   const linearLimit    = rules.linear_limit_cm;
 
@@ -2014,8 +2014,12 @@ async function calculate() {
     rules.airline_code = airlineCode;
     rules.airline_name_cn = airlineName;
     rules.cabin_class = cabin;
+    // A manual override at the top takes priority over the AI's lookup —
+    // bake it into rules so the results display and recalc() both see it.
+    if (allowance.free !== 'auto') rules.free_bags_per_pax = parseInt(allowance.free);
+    if (allowance.weight !== 'auto') rules.weight_limit_kg = parseFloat(allowance.weight);
 
-    const packed = packCouriers(items, rules, allowance);
+    const packed = packCouriers(items, rules);
     if (weightEstimated) {
       packed.summary = '单件重量为按体积估算，非实测。' + packed.summary;
     }
@@ -2203,7 +2207,7 @@ function recalc() {
     max_bags_per_pax: !isNaN(maxBags) && maxBags > 0 ? maxBags : lastCalc.rules.max_bags_per_pax,
   };
 
-  const packed = packCouriers(lastCalc.items, rules, lastCalc.allowance);
+  const packed = packCouriers(lastCalc.items, rules);
   lastCalc = { ...lastCalc, rules };
   renderResults({ airline_rules: rules, ...packed });
   toast('已按新数值重新计算');
