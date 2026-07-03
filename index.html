@@ -2108,7 +2108,7 @@ function renderResults(r) {
   // amber = fee rates. 每人最多可托运件数 is deliberately NOT grouped with
   // these — it's rendered in its own separate box outside the strip.
   const editableInput = x =>
-    `<div class="rule-block"><span class="lbl">${x.l}</span><input type="number" id="${x.id}" value="${x.v ?? ''}">${x.unit ? `<span class="lbl">${x.unit}</span>` : ''}</div>`;
+    `<div class="rule-block"><span class="lbl">${x.l}</span>${x.prefix ? `<span class="lbl">${x.prefix}</span>` : ''}<input type="number" id="${x.id}" value="${x.v ?? ''}">${x.unit ? `<span class="lbl">${x.unit}</span>` : ''}</div>`;
   const staticBlock = x =>
     `<div class="rule-block"><span class="lbl">${x.l}</span><span class="val">${x.v}</span></div>`;
   const group = (groupClass, html) => `<div class="rule-group ${groupClass}">${html}</div>`;
@@ -2126,10 +2126,13 @@ function renderResults(r) {
     { id: 'rule-free',   v: rules.free_bags_per_pax,  l: '免费', unit: '件' },
   ];
 
+  // Fee rates vary a lot by fare zone/route (e.g. CX charges USD 100-260 for
+  // excess depending on origin-destination zone pair) — AI's single guess
+  // can't know your actual zone, so these are editable like everything else.
   const feeGroup = [
-    { static: true, v: rules.excess_bag_fee_text || '—', l: '超件' },
-    { static: true, v: rules.overweight_fee_text || '—', l: '超重' },
-    { static: true, v: rules.oversize_fee_text || '—', l: '超尺寸' },
+    { id: 'rule-excess-fee',     v: rules.excess_bag_fee_usd,   l: '超件',  prefix: 'USD', unit: '/件' },
+    { id: 'rule-overweight-fee', v: rules.overweight_fee_usd,   l: '超重',  prefix: 'USD', unit: '/件' },
+    { id: 'rule-oversize-fee',   v: rules.oversize_fee_usd,     l: '超尺寸', prefix: 'USD', unit: '/件' },
   ];
 
   const renderGroup = items => items.map(x => x.static ? staticBlock(x) : editableInput(x)).join('');
@@ -2259,12 +2262,15 @@ function renderResults(r) {
 // Re-run packCouriers() with the edited rule values, no new AI call needed
 function recalc() {
   if (!lastCalc) return;
-  const weight    = parseFloat(document.getElementById('rule-weight').value);
-  const stdKg     = parseFloat(document.getElementById('rule-std-kg').value);
-  const linear    = parseFloat(document.getElementById('rule-linear').value);
-  const free      = parseInt(document.getElementById('rule-free').value);
-  const maxBags   = parseInt(document.getElementById('rule-maxbags').value);
-  const maxWeight = parseFloat(document.getElementById('rule-max-total-weight').value);
+  const weight       = parseFloat(document.getElementById('rule-weight').value);
+  const stdKg        = parseFloat(document.getElementById('rule-std-kg').value);
+  const linear       = parseFloat(document.getElementById('rule-linear').value);
+  const free         = parseInt(document.getElementById('rule-free').value);
+  const maxBags      = parseInt(document.getElementById('rule-maxbags').value);
+  const maxWeight    = parseFloat(document.getElementById('rule-max-total-weight').value);
+  const excessFee    = parseFloat(document.getElementById('rule-excess-fee').value);
+  const overweightFee = parseFloat(document.getElementById('rule-overweight-fee').value);
+  const oversizeFee   = parseFloat(document.getElementById('rule-oversize-fee').value);
 
   const rules = {
     ...lastCalc.rules,
@@ -2274,7 +2280,13 @@ function recalc() {
     free_bags_per_pax: !isNaN(free) ? free : lastCalc.rules.free_bags_per_pax,
     max_bags_per_pax: !isNaN(maxBags) && maxBags > 0 ? maxBags : lastCalc.rules.max_bags_per_pax,
     max_total_weight_kg: !isNaN(maxWeight) && maxWeight > 0 ? maxWeight : 0,
+    excess_bag_fee_usd: !isNaN(excessFee) ? excessFee : lastCalc.rules.excess_bag_fee_usd,
+    overweight_fee_usd: !isNaN(overweightFee) ? overweightFee : lastCalc.rules.overweight_fee_usd,
+    oversize_fee_usd: !isNaN(oversizeFee) ? oversizeFee : lastCalc.rules.oversize_fee_usd,
   };
+  rules.excess_bag_fee_text = `USD ${rules.excess_bag_fee_usd}/件`;
+  rules.overweight_fee_text = `USD ${rules.overweight_fee_usd}/件`;
+  rules.oversize_fee_text = `USD ${rules.oversize_fee_usd}/件`;
 
   const packed = packCouriers(lastCalc.items, rules);
   lastCalc = { ...lastCalc, rules };
