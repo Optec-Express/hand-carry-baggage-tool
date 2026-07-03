@@ -3,7 +3,7 @@
 // (zone lookups, compound arithmetic). Text-only requests get a larger,
 // more capable text model instead.
 const GROQ_MODEL_VISION = 'meta-llama/llama-4-scout-17b-16e-instruct';
-const GROQ_MODEL_TEXT = 'llama-3.3-70b-versatile';
+const GROQ_MODEL_TEXT = 'groq/compound';
 const GROQ_ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions';
 
 function toGroq(body) {
