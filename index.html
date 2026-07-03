@@ -685,6 +685,22 @@ body {
   line-height: 1.7;
 }
 
+.concept-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 7px 10px;
+  border-radius: 5px;
+  font-size: 12.5px;
+  color: var(--text-3);
+  font-family: var(--mono);
+}
+
+.concept-row.picked {
+  background: var(--accent-l);
+  color: var(--accent);
+  font-weight: 700;
+}
+
 .disclaimer {
   margin-top: 12px;
   font-size: 11.5px;
@@ -1089,6 +1105,7 @@ body {
       <div class="section-hd">费用估算</div>
       <div class="cost-body">
         <div id="cost-rows"></div>
+        <div id="cost-compare" style="display:none;"></div>
         <div id="cost-detail" class="cost-detail" style="display:none;"></div>
         <div id="cost-disclaimer" class="disclaimer"></div>
       </div>
@@ -1780,14 +1797,18 @@ Provide:
 - length_limit_cm / width_limit_cm / height_limit_cm: individual per-dimension MAXIMUM caps if the airline states them instead of/alongside linear, else null
 - free_bags_per_pax: standard number of free checked bags per passenger in this cabin
 - max_bags_per_pax: the MAXIMUM total bags one passenger may check in total, even paying excess fees (many airlines cap this, e.g. 9-10 bags/pax); if genuinely uncapped, use a sensible conservative number like 10
-- excess_bag_fee_usd: your best numeric USD estimate for the flat fee per bag beyond the free allowance
+- excess_bag_fee_usd: your best numeric USD estimate for the flat fee per bag beyond the free allowance under the PIECE CONCEPT (excess billed per extra piece, regardless of its weight)
 - overweight_fee_usd: your best numeric USD estimate for the flat surcharge on one overweight bag
 - oversize_fee_usd: your best numeric USD estimate for the flat surcharge on one oversized bag
 - excess_bag_fee_text / overweight_fee_text / oversize_fee_text: short human-readable fee description for display, e.g. "USD 200/bag"
-- notes: short Chinese-only note on anything worth flagging (e.g. fees vary by route/season), empty string if nothing
+- weight_concept_available: true if this airline/cabin also offers (or the route may qualify for) the WEIGHT CONCEPT baggage system (a single total kg allowance per passenger, excess billed per kg over — common on many non-North-America routes), false if only the piece concept applies
+- weight_concept_allowance_kg: total free checked-baggage weight allowance per passenger under the weight concept, null if weight_concept_available is false
+- weight_concept_excess_fee_usd_per_kg: your best numeric USD estimate per kg over that total allowance, null if not applicable
+- weight_concept_text: short human-readable description, e.g. "总重40kg内免费，超出部分按公斤收费"; empty string if not applicable
+- notes: short Chinese-only note on anything worth flagging (e.g. fees vary by route/season, or which concept applies to which routes), empty string if nothing
 
 Reply ONLY valid JSON, no markdown, no explanation:
-{"airline_code":"${airlineCode}","airline_name_cn":"string","cabin_class":"${cabin}","weight_limit_kg":23,"linear_limit_cm":158,"length_limit_cm":null,"width_limit_cm":null,"height_limit_cm":null,"free_bags_per_pax":1,"max_bags_per_pax":10,"excess_bag_fee_usd":200,"overweight_fee_usd":100,"oversize_fee_usd":150,"excess_bag_fee_text":"USD 200/bag","overweight_fee_text":"USD 100/bag","oversize_fee_text":"USD 150/bag","notes":""}`;
+{"airline_code":"${airlineCode}","airline_name_cn":"string","cabin_class":"${cabin}","weight_limit_kg":23,"linear_limit_cm":158,"length_limit_cm":null,"width_limit_cm":null,"height_limit_cm":null,"free_bags_per_pax":1,"max_bags_per_pax":10,"excess_bag_fee_usd":200,"overweight_fee_usd":100,"oversize_fee_usd":150,"excess_bag_fee_text":"USD 200/bag","overweight_fee_text":"USD 100/bag","oversize_fee_text":"USD 150/bag","weight_concept_available":false,"weight_concept_allowance_kg":null,"weight_concept_excess_fee_usd_per_kg":null,"weight_concept_text":"","notes":""}`;
 }
 
 // Deterministic bin-packing: each cargo item is an already-boxed physical piece
@@ -1842,12 +1863,43 @@ function packCouriers(items, rules, allowance) {
   const overweightCount = pieces.filter(p => p.overweight).length;
   const oversizeCount = pieces.filter(p => p.oversize).length;
 
-  const excessCost     = excessBags * (rules.excess_bag_fee_usd || 0);
   const overweightCost = overweightCount * (rules.overweight_fee_usd || 0);
   const oversizeCost   = oversizeCount * (rules.oversize_fee_usd || 0);
+  const surcharges = overweightCost + oversizeCost; // same physical violations, same fee, either concept
 
-  const details = [];
-  if (excessBags) details.push(`${excessBags} 件超出免费额度，按 ${rules.excess_bag_fee_text || rules.excess_bag_fee_usd + ' USD/件'} 收取`);
+  // Piece concept: excess billed per extra piece beyond each courier's free count
+  const pieceExcessCost = excessBags * (rules.excess_bag_fee_usd || 0);
+  const pieceConcept = {
+    label: '计件制',
+    excess_bags: excessBags,
+    excess_cost_usd: pieceExcessCost,
+    overweight_cost_usd: overweightCost,
+    oversize_cost_usd: oversizeCost,
+    total_usd: pieceExcessCost + surcharges,
+    detail: excessBags ? `${excessBags} 件超出免费额度，按 ${rules.excess_bag_fee_text || rules.excess_bag_fee_usd + ' USD/件'} 收取` : '未超出免费件数',
+  };
+
+  // Weight concept: excess billed per kg beyond each courier's total weight allowance
+  let weightConcept = null;
+  if (rules.weight_concept_available && rules.weight_concept_allowance_kg) {
+    const totalWeight = pieces.reduce((s, p) => s + p.kg, 0);
+    const totalAllowance = totalCouriers * rules.weight_concept_allowance_kg;
+    const excessKg = Math.max(0, totalWeight - totalAllowance);
+    const excessCostByWeight = excessKg * (rules.weight_concept_excess_fee_usd_per_kg || 0);
+    weightConcept = {
+      label: '计重制',
+      excess_kg: +excessKg.toFixed(1),
+      excess_cost_usd: excessCostByWeight,
+      overweight_cost_usd: overweightCost,
+      oversize_cost_usd: oversizeCost,
+      total_usd: excessCostByWeight + surcharges,
+      detail: excessKg ? `总重超出 ${totalCouriers}×${rules.weight_concept_allowance_kg}kg 免费额度 ${excessKg.toFixed(1)}kg，按 ${rules.weight_concept_text || rules.weight_concept_excess_fee_usd_per_kg + ' USD/kg'} 收取` : '总重未超出免费额度',
+    };
+  }
+
+  const recommended = (weightConcept && weightConcept.total_usd < pieceConcept.total_usd) ? weightConcept : pieceConcept;
+
+  const details = [recommended.detail];
   if (overweightCount) details.push(`${overweightCount} 件超重，按 ${rules.overweight_fee_text || rules.overweight_fee_usd + ' USD/件'} 收取`);
   if (oversizeCount) details.push(`${oversizeCount} 件超尺寸，按 ${rules.oversize_fee_text || rules.oversize_fee_usd + ' USD/件'} 收取`);
 
@@ -1858,18 +1910,22 @@ function packCouriers(items, rules, allowance) {
       total_bags: totalBags,
       free_bags_used: freeBagsUsed,
       excess_bags: excessBags,
-      excess_cost_usd: excessCost,
+      recommended_concept: recommended.label,
+      piece_concept: pieceConcept,
+      weight_concept: weightConcept,
+      excess_cost_usd: recommended.excess_cost_usd,
       overweight_cost_usd: overweightCost,
       oversize_cost_usd: oversizeCost,
-      total_usd: excessCost + overweightCost + oversizeCost,
+      total_usd: recommended.total_usd,
       details,
       disclaimer: 'Estimate only — 实际费用以航司柜台核算为准',
     },
     summary: `共需要 ${totalCouriers} 位飞人，合计 ${totalBags} 件行李`
-      + (excessBags ? `，其中 ${excessBags} 件超出免费额度` : '')
       + (overweightCount ? `，${overweightCount} 件超重` : '')
       + (oversizeCount ? `，${oversizeCount} 件超尺寸` : '')
-      + `，预计总费用 USD ${(excessCost + overweightCost + oversizeCost).toLocaleString()}。`,
+      + `。按${recommended.label}收费更划算，预计总费用 USD ${recommended.total_usd.toLocaleString()}`
+      + (weightConcept ? `（计件制 USD ${pieceConcept.total_usd.toLocaleString()} / 计重制 USD ${weightConcept.total_usd.toLocaleString()}）` : '')
+      + '。',
   };
 }
 
@@ -2089,16 +2145,33 @@ function renderResults(r) {
   const costRows = [
     { l: '所需飞人', v: `${cost.total_couriers ?? couriers.length} 人` },
     { l: '总行李件数', v: `${cost.total_bags} 件` },
-    { l: '免费额度', v: `${cost.free_bags_used ?? cost.free_bags} 件` },
-    { l: '超件数量', v: `${cost.excess_bags} 件` },
   ];
-  if (cost.excess_cost_usd > 0) costRows.push({ l: '超件费', v: `USD ${cost.excess_cost_usd.toLocaleString()}` });
+  if (cost.recommended_concept) costRows.push({ l: '推荐计费方式', v: cost.recommended_concept });
   if (cost.overweight_cost_usd > 0) costRows.push({ l: '超重费', v: `USD ${cost.overweight_cost_usd.toLocaleString()}` });
   if (cost.oversize_cost_usd > 0) costRows.push({ l: '超尺寸费', v: `USD ${cost.oversize_cost_usd.toLocaleString()}` });
 
   document.getElementById('cost-rows').innerHTML =
     costRows.map(x => `<div class="cost-row"><span class="cl">${x.l}</span><span class="cv">${x.v}</span></div>`).join('') +
     `<div class="cost-row total"><span class="cl">预计总费用</span><span class="cv">USD ${(cost.total_usd||0).toLocaleString()}</span></div>`;
+
+  // Piece vs weight concept comparison, when both are available
+  const compareEl = document.getElementById('cost-compare');
+  if (cost.weight_concept) {
+    const p = cost.piece_concept, w = cost.weight_concept;
+    compareEl.innerHTML = `
+      <div class="concept-row ${cost.recommended_concept === p.label ? 'picked' : ''}">
+        <span>${p.label}${cost.recommended_concept === p.label ? ' ✓ 推荐' : ''}</span>
+        <span>USD ${p.total_usd.toLocaleString()}</span>
+      </div>
+      <div class="concept-row ${cost.recommended_concept === w.label ? 'picked' : ''}">
+        <span>${w.label}${cost.recommended_concept === w.label ? ' ✓ 推荐' : ''}</span>
+        <span>USD ${w.total_usd.toLocaleString()}</span>
+      </div>`;
+    compareEl.style.display = '';
+  } else {
+    compareEl.innerHTML = '';
+    compareEl.style.display = 'none';
+  }
 
   const detailEl = document.getElementById('cost-detail');
   if (cost.details && cost.details.length) {
