@@ -481,6 +481,24 @@ body {
   letter-spacing: 0.03em;
 }
 
+.rule-block input {
+  font-family: var(--mono);
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--accent);
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  background: transparent;
+  border: none;
+  border-bottom: 1.5px dashed var(--border);
+  padding: 0 0 1px 0;
+  width: 100%;
+  outline: none;
+}
+
+.rule-block input:hover,
+.rule-block input:focus { border-bottom-color: var(--accent); }
+
 .rule-note {
   margin-top: 12px;
   font-size: 12px;
@@ -1055,20 +1073,17 @@ body {
         航司行李规则
         <span class="airline-tag" id="res-code"></span>
         <span style="color:var(--text-3); font-size:12px; font-weight:400;" id="res-class"></span>
+        <a id="res-baggage-link" href="#" target="_blank" rel="noopener" style="display:none; margin-left:auto; font-size:12px; font-weight:400; color:var(--accent);">查看航司官方行李规定 →</a>
       </div>
       <div class="rules-strip" id="rules-strip"></div>
+      <div style="display:flex; align-items:center; gap:10px; margin-top:10px;">
+        <span style="font-size:11.5px; color:var(--text-3);">以上数值可能与实际不符，可手动修改后重新计算</span>
+        <button class="btn-outline" style="margin-left:auto; padding:6px 14px; font-size:12.5px;" onclick="recalc()">重新计算</button>
+      </div>
       <div id="rules-note"></div>
     </div>
 
     <div class="ai-summary" id="ai-summary" style="display:none;"></div>
-
-    <div class="card">
-      <div class="section-hd">
-        最优打包方案
-        <span class="airline-tag" id="res-couriers" style="background:var(--text);"></span>
-      </div>
-      <div id="bags-grid"></div>
-    </div>
 
     <div class="card">
       <div class="section-hd">费用估算</div>
@@ -1077,6 +1092,14 @@ body {
         <div id="cost-detail" class="cost-detail" style="display:none;"></div>
         <div id="cost-disclaimer" class="disclaimer"></div>
       </div>
+    </div>
+
+    <div class="card">
+      <div class="section-hd">
+        最优打包方案
+        <span class="airline-tag" id="res-couriers" style="background:var(--text);"></span>
+      </div>
+      <div id="bags-grid"></div>
     </div>
 
   </div><!-- /results -->
@@ -1091,6 +1114,37 @@ let rows = [];
 let nextId = 1;
 let activeTab = 'manual';
 let importedTotalWeightKg = null;
+let lastCalc = null; // { items, rules, allowance } — lets recalc() rerun packCouriers() without a new AI call
+
+// Best-effort links to each airline's own official baggage-policy page.
+// Not guaranteed current — airlines restructure their sites; shown as a
+// starting point for the user to verify the AI-looked-up numbers against.
+const BAGGAGE_LINKS = {
+  CX: 'https://www.cathaypacific.com/cx/en_US/baggage.html',
+  JL: 'https://www.jal.co.jp/en/inter/baggage/',
+  NH: 'https://www.ana.co.jp/en/us/baggage-rules-services/',
+  AA: 'https://www.aa.com/i18n/travel-info/baggage/checked-baggage-policy.jsp',
+  UA: 'https://www.united.com/en/us/fly/baggage/checked-bags.html',
+  TK: 'https://www.turkishairlines.com/en-int/any-questions/baggage-allowance/',
+  QR: 'https://www.qatarairways.com/en/baggage.html',
+  LH: 'https://www.lufthansa.com/us/en/baggage',
+  PR: 'https://www.philippineairlines.com/en/plan/baggage',
+  SQ: 'https://www.singaporeair.com/en_UK/us/travel-info/baggage/',
+  KE: 'https://www.koreanair.com/us/en/booking/baggage',
+  EK: 'https://www.emirates.com/us/english/before-you-fly/baggage/',
+  DL: 'https://www.delta.com/us/en/baggage/overview',
+  AC: 'https://www.aircanada.com/us/en/aco/home/plan/baggage.html',
+  CA: 'https://www.airchina.us/US/GB/info/baggagetravel',
+  CK: 'https://www.airchinacargo.com/',
+  CZ: 'https://global.csair.com/US/en/travelservice/baggage/',
+  CI: 'https://www.china-airlines.com/us/en/fly/prepare-to-fly/baggage',
+  BR: 'https://www.evaair.com/en-us/travel-information/baggage/',
+  OZ: 'https://flyasiana.com/C/US/EN/contents/baggage-allowance',
+  LX: 'https://www.swiss.com/us/en/prepare/baggage',
+  MU: 'https://us.ceair.com/newBaggagePC.html',
+  TG: 'https://www.thaiairways.com/en/plan_my_trip/baggage/',
+  VN: 'https://www.vietnamairlines.com/us/en/travel-information/baggage',
+};
 
 // ─── Init ─────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
@@ -1718,10 +1772,12 @@ function importOcrItems() {
 function buildLookupPrompt(airlineCode, airlineName, cabin) {
   return `Look up ${airlineCode} (${airlineName}) checked-baggage policy for a standard (non-elite) passenger in ${cabin}.
 
+IMPORTANT distinction: don't confuse the "free/standard" allowance with the "maximum" — a bag over the free weight but under the maximum just costs an overweight fee; a bag over the MAXIMUM cannot be checked in as a single piece at all (must be split or shipped as cargo instead). We need the MAXIMUM for weight_limit_kg and linear_limit_cm below, not the standard free allowance.
+
 Provide:
-- weight_limit_kg: standard weight limit per checked bag (kg)
-- linear_limit_cm: max linear dimension L+W+H per bag (cm), null if the airline doesn't use this measure
-- length_limit_cm / width_limit_cm / height_limit_cm: individual per-dimension caps if stated, else null
+- weight_limit_kg: the ABSOLUTE MAXIMUM weight a single checked bag may be, even paying overweight fees (e.g. many airlines cap this around 32kg per piece for manual-handling safety regardless of cabin) — NOT the free/standard allowance (which is usually lower, e.g. 23kg economy)
+- linear_limit_cm: the ABSOLUTE MAXIMUM linear dimension L+W+H a single bag may be, even paying oversize fees — NOT the free/standard size allowance
+- length_limit_cm / width_limit_cm / height_limit_cm: individual per-dimension MAXIMUM caps if the airline states them instead of/alongside linear, else null
 - free_bags_per_pax: standard number of free checked bags per passenger in this cabin
 - max_bags_per_pax: the MAXIMUM total bags one passenger may check in total, even paying excess fees (many airlines cap this, e.g. 9-10 bags/pax); if genuinely uncapped, use a sensible conservative number like 10
 - excess_bag_fee_usd: your best numeric USD estimate for the flat fee per bag beyond the free allowance
@@ -1907,6 +1963,7 @@ async function calculate() {
     if (weightEstimated) {
       packed.summary = '单件重量为按体积估算，非实测。' + packed.summary;
     }
+    lastCalc = { items, rules, allowance };
     renderResults({ airline_rules: rules, ...packed });
     console.log('[11] renderResults done');
 
@@ -1932,20 +1989,28 @@ function renderResults(r) {
   document.getElementById('res-class').textContent = `${rules.airline_name_cn} · ${rules.cabin_class}`;
   document.getElementById('res-couriers').textContent = `共需 ${cost.total_couriers ?? couriers.length} 位飞人`;
 
-  // Rules strip
-  const ruleItems = [
-    { v: `${rules.weight_limit_kg} kg`, l: '每件限重（默认）' },
-    { v: `${rules.linear_limit_cm || '—'} cm`, l: '线性尺寸上限 (L+W+H)' },
-    { v: `${rules.free_bags_per_pax ?? '—'} 件`, l: '每人免费件数（默认）' },
-    { v: `${rules.max_bags_per_pax ?? '—'} 件`, l: '每人最多可托运件数' },
+  const linkEl = document.getElementById('res-baggage-link');
+  const link = BAGGAGE_LINKS[rules.airline_code];
+  if (link) { linkEl.href = link; linkEl.style.display = ''; }
+  else { linkEl.style.display = 'none'; }
+
+  // Rules strip — the 4 numbers that drive packCouriers() are editable so the
+  // user can correct an AI lookup mistake and hit 重新计算 without a new AI call.
+  const editableItems = [
+    { id: 'rule-weight',  v: rules.weight_limit_kg,     l: '每件限重（最大，kg）' },
+    { id: 'rule-linear',  v: rules.linear_limit_cm,      l: '尺寸上限（最大，L+W+H cm）' },
+    { id: 'rule-free',    v: rules.free_bags_per_pax,    l: '每人免费件数' },
+    { id: 'rule-maxbags', v: rules.max_bags_per_pax,     l: '每人最多可托运件数' },
+  ];
+  const staticItems = [
     { v: rules.excess_bag_fee_text || '—', l: '超件费率' },
     { v: rules.overweight_fee_text || '—', l: '超重费率' },
     { v: rules.oversize_fee_text || '—', l: '超尺寸费率' },
   ];
 
-  // If dimension limits exist, add them
+  // If dimension limits exist, add them (display-only — not fed into packCouriers editing UI)
   if (rules.length_limit_cm || rules.width_limit_cm || rules.height_limit_cm) {
-    ruleItems.splice(1, 0,
+    staticItems.unshift(
       { v: `${rules.length_limit_cm||'—'} cm`, l: '最大长度' },
       { v: `${rules.width_limit_cm||'—'} cm`,  l: '最大宽度' },
       { v: `${rules.height_limit_cm||'—'} cm`, l: '最大高度' }
@@ -1953,7 +2018,8 @@ function renderResults(r) {
   }
 
   document.getElementById('rules-strip').innerHTML =
-    ruleItems.map(x => `<div class="rule-block"><div class="val">${x.v}</div><div class="lbl">${x.l}</div></div>`).join('');
+    editableItems.map(x => `<div class="rule-block"><input type="number" id="${x.id}" value="${x.v ?? ''}"><div class="lbl">${x.l}</div></div>`).join('')
+    + staticItems.map(x => `<div class="rule-block"><div class="val">${x.v}</div><div class="lbl">${x.l}</div></div>`).join('');
 
   const noteEl = document.getElementById('rules-note');
   noteEl.innerHTML = '';
@@ -2046,6 +2112,28 @@ function renderResults(r) {
 
   document.getElementById('results').style.display = 'block';
   document.getElementById('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// Re-run packCouriers() with the edited rule values, no new AI call needed
+function recalc() {
+  if (!lastCalc) return;
+  const weight  = parseFloat(document.getElementById('rule-weight').value);
+  const linear  = parseFloat(document.getElementById('rule-linear').value);
+  const free    = parseInt(document.getElementById('rule-free').value);
+  const maxBags = parseInt(document.getElementById('rule-maxbags').value);
+
+  const rules = {
+    ...lastCalc.rules,
+    weight_limit_kg: !isNaN(weight) ? weight : lastCalc.rules.weight_limit_kg,
+    linear_limit_cm: !isNaN(linear) ? linear : lastCalc.rules.linear_limit_cm,
+    free_bags_per_pax: !isNaN(free) ? free : lastCalc.rules.free_bags_per_pax,
+    max_bags_per_pax: !isNaN(maxBags) && maxBags > 0 ? maxBags : lastCalc.rules.max_bags_per_pax,
+  };
+
+  const packed = packCouriers(lastCalc.items, rules, lastCalc.allowance);
+  lastCalc = { ...lastCalc, rules };
+  renderResults({ airline_rules: rules, ...packed });
+  toast('已按新数值重新计算');
 }
 
 // ─── Error display ────────────────────────────────────────
