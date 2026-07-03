@@ -499,6 +499,27 @@ body {
 .rule-block input:hover,
 .rule-block input:focus { border-bottom-color: var(--accent); }
 
+/* Color-coded rule groups: max-limit facts (red) / ticket-included allowance (green) / fees (amber) */
+.rule-block.group-max .val, .rule-block.group-max input { color: #DC2626; }
+.rule-block.group-max input { border-bottom-color: #FCA5A5; }
+.rule-block.group-max input:hover, .rule-block.group-max input:focus { border-bottom-color: #DC2626; }
+
+.rule-block.group-ticket .val, .rule-block.group-ticket input { color: #16A34A; }
+.rule-block.group-ticket input { border-bottom-color: #86EFAC; }
+.rule-block.group-ticket input:hover, .rule-block.group-ticket input:focus { border-bottom-color: #16A34A; }
+
+.rule-block.group-fee .val { color: #D97706; }
+
+.rule-block.maxbags-block {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  border: 1.5px dashed var(--border);
+  background: #fff;
+}
+.rule-block.maxbags-block .val, .rule-block.maxbags-block input { color: var(--text); }
+
 .rule-note {
   margin-top: 12px;
   font-size: 12px;
@@ -1094,7 +1115,10 @@ body {
         <span style="color:var(--text-3); font-size:12px; font-weight:400;" id="res-class"></span>
         <a id="res-baggage-link" href="#" target="_blank" rel="noopener" style="display:none; margin-left:auto; font-size:12px; font-weight:400; color:var(--accent);">查看航司官方行李规定 →</a>
       </div>
-      <div class="rules-strip" id="rules-strip"></div>
+      <div style="display:flex; gap:14px; align-items:stretch;">
+        <div class="rules-strip" id="rules-strip" style="flex:1;"></div>
+        <div id="rules-maxbags" style="flex:0 0 150px;"></div>
+      </div>
       <div style="display:flex; align-items:center; gap:10px; margin-top:10px;">
         <span style="font-size:11.5px; color:var(--text-3);">以上数值可能与实际不符，可手动修改后重新计算</span>
         <button class="btn-outline" style="margin-left:auto; padding:6px 14px; font-size:12.5px;" onclick="recalc()">重新计算</button>
@@ -2064,33 +2088,43 @@ function renderResults(r) {
   if (link) { linkEl.href = link; linkEl.style.display = ''; }
   else { linkEl.style.display = 'none'; }
 
-  // Rules strip — the 4 numbers that drive packCouriers() are editable so the
-  // user can correct an AI lookup mistake and hit 重新计算 without a new AI call.
-  const editableItems = [
-    { id: 'rule-weight',  v: rules.weight_limit_kg,      l: '每件限重（最大，kg）' },
-    { id: 'rule-std-kg',  v: rules.standard_weight_kg,   l: '机票含 kg（每件，超出算超重）' },
-    { id: 'rule-linear',  v: rules.linear_limit_cm,      l: '尺寸上限（最大，L+W+H cm）' },
-    { id: 'rule-free',    v: rules.free_bags_per_pax,    l: '每人免费件数' },
-    { id: 'rule-maxbags', v: rules.max_bags_per_pax,     l: '每人最多可托运件数' },
+  // Rules strip, grouped so related numbers sit together and share a color:
+  // red = airline's fixed max-limit facts, green = what this ticket includes,
+  // amber = fee rates. 每人最多可托运件数 is deliberately NOT grouped with
+  // these — it's rendered in its own separate box outside the strip.
+  const editableInput = (x, groupClass) =>
+    `<div class="rule-block ${groupClass}"><input type="number" id="${x.id}" value="${x.v ?? ''}"><div class="lbl">${x.l}</div></div>`;
+  const staticBlock = (x, groupClass) =>
+    `<div class="rule-block ${groupClass || ''}"><div class="val">${x.v}</div><div class="lbl">${x.l}</div></div>`;
+
+  const maxGroup = [
+    { id: 'rule-weight', v: rules.weight_limit_kg, l: '每件限重（最大，kg）' },
+    { id: 'rule-linear', v: rules.linear_limit_cm, l: '尺寸上限（最大，L+W+H cm）' },
   ];
-  const staticItems = [
+  const maxStatic = [];
+  if (rules.length_limit_cm) maxStatic.push({ v: `${rules.length_limit_cm} cm`, l: '最大长度' });
+  if (rules.width_limit_cm)  maxStatic.push({ v: `${rules.width_limit_cm} cm`,  l: '最大宽度' });
+  if (rules.height_limit_cm) maxStatic.push({ v: `${rules.height_limit_cm} cm`, l: '最大高度' });
+
+  const ticketGroup = [
+    { id: 'rule-std-kg', v: rules.standard_weight_kg, l: '机票含 kg（每件，超出算超重）' },
+    { id: 'rule-free',   v: rules.free_bags_per_pax,  l: '每人免费件数' },
+  ];
+
+  const feeGroup = [
     { v: rules.excess_bag_fee_text || '—', l: '超件费率' },
     { v: rules.overweight_fee_text || '—', l: '超重费率' },
     { v: rules.oversize_fee_text || '—', l: '超尺寸费率' },
   ];
 
-  // If dimension limits exist, add them (display-only — not fed into packCouriers editing UI)
-  if (rules.length_limit_cm || rules.width_limit_cm || rules.height_limit_cm) {
-    staticItems.unshift(
-      { v: `${rules.length_limit_cm||'—'} cm`, l: '最大长度' },
-      { v: `${rules.width_limit_cm||'—'} cm`,  l: '最大宽度' },
-      { v: `${rules.height_limit_cm||'—'} cm`, l: '最大高度' }
-    );
-  }
-
   document.getElementById('rules-strip').innerHTML =
-    editableItems.map(x => `<div class="rule-block"><input type="number" id="${x.id}" value="${x.v ?? ''}"><div class="lbl">${x.l}</div></div>`).join('')
-    + staticItems.map(x => `<div class="rule-block"><div class="val">${x.v}</div><div class="lbl">${x.l}</div></div>`).join('');
+    maxGroup.map(x => editableInput(x, 'group-max')).join('')
+    + maxStatic.map(x => staticBlock(x, 'group-max')).join('')
+    + ticketGroup.map(x => editableInput(x, 'group-ticket')).join('')
+    + feeGroup.map(x => staticBlock(x, 'group-fee')).join('');
+
+  document.getElementById('rules-maxbags').innerHTML =
+    `<div class="rule-block maxbags-block"><input type="number" id="rule-maxbags" value="${rules.max_bags_per_pax ?? ''}"><div class="lbl">每人最多可托运件数（人工核实）</div></div>`;
 
   const noteEl = document.getElementById('rules-note');
   noteEl.innerHTML = '';
