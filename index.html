@@ -1793,7 +1793,7 @@ IMPORTANT distinction: don't confuse the "free/standard" allowance with the "max
 
 Provide:
 - weight_limit_kg: the ABSOLUTE MAXIMUM weight a single checked bag may be, even paying overweight fees (e.g. many airlines cap this around 32kg per piece for manual-handling safety regardless of cabin) — NOT the free/standard allowance (which is usually lower, e.g. 23kg economy)
-- linear_limit_cm: the ABSOLUTE MAXIMUM linear dimension L+W+H a single bag may be, even paying oversize fees — NOT the free/standard size allowance
+- linear_limit_cm: the ABSOLUTE MAXIMUM linear dimension L+W+H a single bag may be, even paying oversize fees — NOT the free/standard size allowance (e.g. many airlines cap this around 203cm/80in as a "will not accept beyond this" ceiling, similar in spirit to the ~32kg weight ceiling — that free/standard 158cm figure that shows up everywhere is the SMALLER, different, free-tier number; don't return that one here)
 - length_limit_cm / width_limit_cm / height_limit_cm: individual per-dimension MAXIMUM caps if the airline states them instead of/alongside linear, else null
 - free_bags_per_pax: standard number of free checked bags per passenger in this cabin
 - max_bags_per_pax: the MAXIMUM total bags one passenger may check in total, even paying excess fees (many airlines cap this, e.g. 9-10 bags/pax); if genuinely uncapped, use a sensible conservative number like 10
