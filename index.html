@@ -1118,7 +1118,7 @@ body {
         <a id="res-baggage-link" href="#" target="_blank" rel="noopener" style="display:none; margin-left:auto; font-size:12px; font-weight:400; color:var(--accent);">查看航司官方行李规定 →</a>
       </div>
       <div class="rules-strip" id="rules-strip"></div>
-      <div id="rules-maxbags" style="margin-top:10px;"></div>
+      <div id="rules-maxbags" style="margin-top:10px; display:flex; gap:10px; flex-wrap:wrap;"></div>
       <div style="display:flex; align-items:center; gap:10px; margin-top:10px;">
         <span style="font-size:11.5px; color:var(--text-3);">以上数值可能与实际不符，可手动修改后重新计算</span>
         <button class="btn-outline" style="margin-left:auto; padding:6px 14px; font-size:12.5px;" onclick="recalc()">重新计算</button>
@@ -1847,6 +1847,7 @@ function packCouriers(items, rules) {
   const standardWeightKg = rules.standard_weight_kg || maxWeightKg;    // ticket-included per-bag weight before an overweight fee applies
   const freeBagsPerPax = rules.free_bags_per_pax || 1;
   const maxBagsPerPax  = rules.max_bags_per_pax || 10;
+  const maxTotalWeightKg = rules.max_total_weight_kg || 0;             // 0 = no cap; user-set practical ceiling on one courier's total load
   const linearLimit    = rules.linear_limit_cm;
 
   const pieces = [];
@@ -1869,23 +1870,37 @@ function packCouriers(items, rules) {
   // Heaviest first so each courier's load is front-loaded and easy to scan
   pieces.sort((a, b) => b.kg - a.kg);
 
-  const couriers = [];
-  for (let i = 0; i < pieces.length; i += maxBagsPerPax) {
-    const slice = pieces.slice(i, i + maxBagsPerPax);
-    couriers.push({
-      courier_no: couriers.length + 1,
-      bags: slice.map((p, idx) => ({
-        bag_no: idx + 1,
-        items: [{ label: p.desc, dims: `${p.l}x${p.w}x${p.h}`, weight_kg: p.kg }],
-        total_weight_kg: p.kg,
-        linear_cm: p.linear,
-        overweight: p.overweight,
-        exceedsMax: p.exceedsMax,
-        oversize: p.oversize,
-        status: p.exceedsMax ? '超出最大限重' : (p.overweight ? '超重' : (p.oversize ? '超尺寸' : '合规')),
-      }))
-    });
+  // Greedily fill each courier up to whichever limit hits first: piece count
+  // (max_bags_per_pax) or total weight (max_total_weight_kg, if the user set one).
+  const courierSlices = [];
+  let current = [];
+  let currentWeight = 0;
+  for (const p of pieces) {
+    const wouldExceedCount = current.length >= maxBagsPerPax;
+    const wouldExceedWeight = maxTotalWeightKg > 0 && current.length > 0 && (currentWeight + p.kg) > maxTotalWeightKg;
+    if (wouldExceedCount || wouldExceedWeight) {
+      courierSlices.push(current);
+      current = [];
+      currentWeight = 0;
+    }
+    current.push(p);
+    currentWeight += p.kg;
   }
+  if (current.length) courierSlices.push(current);
+
+  const couriers = courierSlices.map((slice, ci) => ({
+    courier_no: ci + 1,
+    bags: slice.map((p, idx) => ({
+      bag_no: idx + 1,
+      items: [{ label: p.desc, dims: `${p.l}x${p.w}x${p.h}`, weight_kg: p.kg }],
+      total_weight_kg: p.kg,
+      linear_cm: p.linear,
+      overweight: p.overweight,
+      exceedsMax: p.exceedsMax,
+      oversize: p.oversize,
+      status: p.exceedsMax ? '超出最大限重' : (p.overweight ? '超重' : (p.oversize ? '超尺寸' : '合规')),
+    }))
+  }));
 
   const totalBags = pieces.length;
   const totalCouriers = couriers.length;
@@ -2124,8 +2139,12 @@ function renderResults(r) {
     + group('group-ticket', renderGroup(ticketGroup))
     + group('group-fee', renderGroup(feeGroup));
 
+  // These two are always shown as 0 regardless of any AI guess — they're
+  // practical/policy limits the user is expected to know and enter themselves,
+  // not facts to trust from a lookup. 0 = "not set" (no cap applied).
   document.getElementById('rules-maxbags').innerHTML =
-    `<div class="rule-block maxbags-block"><span class="lbl">每人最多可托运（人工核实）</span><input type="number" id="rule-maxbags" value="${rules.max_bags_per_pax ?? 0}"><span class="lbl">件</span></div>`;
+    `<div class="rule-block maxbags-block"><span class="lbl">每人最多可托运（人工核实）</span><input type="number" id="rule-maxbags" value="0"><span class="lbl">件</span></div>`
+    + `<div class="rule-block maxbags-block"><span class="lbl">每人最多限重（人工核实）</span><input type="number" id="rule-max-total-weight" value="0"><span class="lbl">kg</span></div>`;
 
   const noteEl = document.getElementById('rules-note');
   noteEl.innerHTML = '';
@@ -2240,11 +2259,12 @@ function renderResults(r) {
 // Re-run packCouriers() with the edited rule values, no new AI call needed
 function recalc() {
   if (!lastCalc) return;
-  const weight  = parseFloat(document.getElementById('rule-weight').value);
-  const stdKg   = parseFloat(document.getElementById('rule-std-kg').value);
-  const linear  = parseFloat(document.getElementById('rule-linear').value);
-  const free    = parseInt(document.getElementById('rule-free').value);
-  const maxBags = parseInt(document.getElementById('rule-maxbags').value);
+  const weight    = parseFloat(document.getElementById('rule-weight').value);
+  const stdKg     = parseFloat(document.getElementById('rule-std-kg').value);
+  const linear    = parseFloat(document.getElementById('rule-linear').value);
+  const free      = parseInt(document.getElementById('rule-free').value);
+  const maxBags   = parseInt(document.getElementById('rule-maxbags').value);
+  const maxWeight = parseFloat(document.getElementById('rule-max-total-weight').value);
 
   const rules = {
     ...lastCalc.rules,
@@ -2253,6 +2273,7 @@ function recalc() {
     linear_limit_cm: !isNaN(linear) ? linear : lastCalc.rules.linear_limit_cm,
     free_bags_per_pax: !isNaN(free) ? free : lastCalc.rules.free_bags_per_pax,
     max_bags_per_pax: !isNaN(maxBags) && maxBags > 0 ? maxBags : lastCalc.rules.max_bags_per_pax,
+    max_total_weight_kg: !isNaN(maxWeight) && maxWeight > 0 ? maxWeight : 0,
   };
 
   const packed = packCouriers(lastCalc.items, rules);
