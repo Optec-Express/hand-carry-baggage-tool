@@ -1,8 +1,14 @@
-const GROQ_MODEL = 'meta-llama/llama-4-scout-17b-16e-instruct';
+// Vision-capable model only for requests that actually contain an image —
+// it's a small 17B model that proved unreliable at multi-step reasoning
+// (zone lookups, compound arithmetic). Text-only requests get a larger,
+// more capable text model instead.
+const GROQ_MODEL_VISION = 'meta-llama/llama-4-scout-17b-16e-instruct';
+const GROQ_MODEL_TEXT = 'llama-3.3-70b-versatile';
 const GROQ_ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions';
 
 function toGroq(body) {
   const messages = body.messages || [];
+  let hasImage = false;
 
   const groqMessages = messages.map(msg => {
     const role = msg.role === 'user' ? 'user' : 'assistant';
@@ -19,6 +25,7 @@ function toGroq(body) {
         } else if (item.type === 'image') {
           const src = item.source || {};
           if (src.type === 'base64') {
+            hasImage = true;
             const mediaType = src.media_type || 'image/jpeg';
             content.push({
               type: 'image_url',
@@ -42,7 +49,7 @@ function toGroq(body) {
   });
 
   return {
-    model: GROQ_MODEL,
+    model: hasImage ? GROQ_MODEL_VISION : GROQ_MODEL_TEXT,
     messages: groqMessages,
     max_tokens: body.max_tokens || 8192,
     temperature: 0.1,

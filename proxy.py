@@ -15,7 +15,11 @@ import re
 import os
 import threading
 
-GROQ_MODEL    = "meta-llama/llama-4-scout-17b-16e-instruct"
+# Vision-capable model only for requests that actually contain an image — it's
+# a small 17B model that proved unreliable at multi-step reasoning (zone
+# lookups, compound arithmetic). Text-only requests get a larger text model.
+GROQ_MODEL_VISION = "meta-llama/llama-4-scout-17b-16e-instruct"
+GROQ_MODEL_TEXT   = "llama-3.3-70b-versatile"
 GROQ_ENDPOINT = "https://api.groq.com/openai/v1/chat/completions"
 PORT     = 8765
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -63,6 +67,7 @@ def to_groq(body_bytes):
     messages = data.get('messages', [])
 
     groq_messages = []
+    has_image = False
     for msg in messages:
         raw  = msg.get('content', '')
         role = 'user' if msg.get('role') == 'user' else 'assistant'
@@ -78,6 +83,7 @@ def to_groq(body_bytes):
                 elif t == 'image':
                     src = item.get('source', {})
                     if src.get('type') == 'base64':
+                        has_image = True
                         media_type = src.get('media_type', 'image/jpeg')
                         content.append({
                             'type': 'image_url',
@@ -100,7 +106,7 @@ def to_groq(body_bytes):
     })
 
     groq_req = {
-        'model':           GROQ_MODEL,
+        'model':           GROQ_MODEL_VISION if has_image else GROQ_MODEL_TEXT,
         'messages':        groq_messages,
         'max_tokens':      data.get('max_tokens', 8192),
         'temperature':     0.1,
@@ -255,7 +261,7 @@ if __name__ == '__main__':
     # 监听所有接口（含 IPv4 和 IPv6），多线程处理
     server = ThreadingHTTPServer(('', PORT), Handler)
     print()
-    print(f'  [OK] Hand-Carry Tool started (Groq {GROQ_MODEL})')
+    print(f'  [OK] Hand-Carry Tool started (Groq text={GROQ_MODEL_TEXT}, vision={GROQ_MODEL_VISION})')
     print(f'  Browser: http://localhost:{PORT}')
     print(f'  Threaded mode, listening on all interfaces')
     print()

@@ -120,7 +120,7 @@ body {
 /* ── Settings strip ──────────────────────────────────────── */
 .settings-grid {
   display: grid;
-  grid-template-columns: 1.8fr 1fr 1fr 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   gap: 14px;
 }
 
@@ -912,6 +912,14 @@ body {
   <div class="card">
     <div class="card-title">航班参数</div>
     <div class="settings-grid">
+      <div class="field">
+        <label>始发港</label>
+        <input type="text" id="inp-origin" placeholder="例如 香港 / HKG">
+      </div>
+      <div class="field">
+        <label>目的港</label>
+        <input type="text" id="inp-destination" placeholder="例如 洛杉矶 / LAX">
+      </div>
       <div class="field">
         <label>目的航空公司</label>
         <select id="sel-airline">
@@ -1813,8 +1821,17 @@ function importOcrItems() {
 // by "merging" cartons, which is physically nonsensical for pre-packed cargo.
 // So the AI's job is now just to recall airline policy numbers; all bin-packing,
 // headcount, and cost math happens deterministically in packCouriers() below.
-function buildLookupPrompt(airlineCode, airlineName, cabin) {
-  return `Look up ${airlineCode} (${airlineName}) checked-baggage policy for a standard (non-elite) passenger in ${cabin}.
+function buildLookupPrompt(airlineCode, airlineName, cabin, origin, destination) {
+  const hasRoute = origin && destination;
+  const routeLine = hasRoute
+    ? `Route: ${origin} → ${destination}.`
+    : `No specific route given.`;
+  const zoneNote = hasRoute
+    ? `\nIMPORTANT: ${airlineCode}'s excess/overweight/oversize baggage fees are usually tiered by a fare-zone system based on the origin-destination country/region pair (e.g. Cathay Pacific charges USD 100-260 for one excess bag depending on which zone pair the route falls into — "往返香港/第一区/第二三区/第四区/第五六区" etc). Work out which zone this SPECIFIC route (${origin} → ${destination}) falls into, and return the fee numbers for THAT zone — not a generic cross-zone average. Mention which zone you used in notes.`
+    : `\nNo route was given, so excess/overweight/oversize fees will necessarily be a rough cross-zone average — say so in notes and recommend the user provide 始发港/目的港 for an accurate zone-specific number.`;
+
+  return `Look up ${airlineCode} (${airlineName}) checked-baggage policy for a standard (non-elite) passenger in ${cabin}. ${routeLine}
+${zoneNote}
 
 IMPORTANT distinction: don't confuse the "free/standard" allowance with the "maximum" — a bag over the free weight but under the maximum just costs an overweight fee; a bag over the MAXIMUM cannot be checked in as a single piece at all (must be split or shipped as cargo instead). We need the MAXIMUM for weight_limit_kg and linear_limit_cm below, not the standard free allowance.
 
@@ -1825,15 +1842,15 @@ Provide:
 - length_limit_cm / width_limit_cm / height_limit_cm: individual per-dimension MAXIMUM caps if the airline states them instead of/alongside linear, else null
 - free_bags_per_pax: standard number of free checked bags per passenger in this cabin
 - max_bags_per_pax: the MAXIMUM total bags one passenger may check in total, even paying excess fees (many airlines cap this, e.g. 9-10 bags/pax); if genuinely uncapped, use a sensible conservative number like 10
-- excess_bag_fee_usd: your best numeric USD estimate for the flat fee per bag beyond the free allowance under the PIECE CONCEPT (excess billed per extra piece, regardless of its weight)
-- overweight_fee_usd: your best numeric USD estimate for the flat surcharge on one overweight bag
-- oversize_fee_usd: your best numeric USD estimate for the flat surcharge on one oversized bag
-- excess_bag_fee_text / overweight_fee_text / oversize_fee_text: short human-readable fee description for display, e.g. "USD 200/bag"
+- excess_bag_fee_usd: numeric USD fee per bag beyond the free allowance under the PIECE CONCEPT, for the SPECIFIC route/zone above if given (else a reasonable cross-zone average)
+- overweight_fee_usd: numeric USD surcharge for one overweight bag, for that same specific zone if given
+- oversize_fee_usd: numeric USD surcharge for one oversized bag, for that same specific zone if given
+- excess_bag_fee_text / overweight_fee_text / oversize_fee_text: short human-readable fee description for display, e.g. "USD 200/bag（往返第二/三区）"
 - weight_concept_available: true if this airline/cabin also offers (or the route may qualify for) the WEIGHT CONCEPT baggage system (a single total kg allowance per passenger, excess billed per kg over — common on many non-North-America routes), false if only the piece concept applies
 - weight_concept_allowance_kg: total free checked-baggage weight allowance per passenger under the weight concept, null if weight_concept_available is false
 - weight_concept_excess_fee_usd_per_kg: your best numeric USD estimate per kg over that total allowance, null if not applicable
 - weight_concept_text: short human-readable description, e.g. "总重40kg内免费，超出部分按公斤收费"; empty string if not applicable
-- notes: short Chinese-only note on anything worth flagging (e.g. fees vary by route/season, or which concept applies to which routes), empty string if nothing
+- notes: short Chinese-only note — MUST mention which fare zone was used for the fees if a route was given, empty string only if truly nothing to add
 
 Reply ONLY valid JSON, no markdown, no explanation:
 {"airline_code":"${airlineCode}","airline_name_cn":"string","cabin_class":"${cabin}","weight_limit_kg":32,"standard_weight_kg":23,"linear_limit_cm":203,"length_limit_cm":null,"width_limit_cm":null,"height_limit_cm":null,"free_bags_per_pax":1,"max_bags_per_pax":10,"excess_bag_fee_usd":200,"overweight_fee_usd":100,"oversize_fee_usd":150,"excess_bag_fee_text":"USD 200/bag","overweight_fee_text":"USD 100/bag","oversize_fee_text":"USD 150/bag","weight_concept_available":false,"weight_concept_allowance_kg":null,"weight_concept_excess_fee_usd_per_kg":null,"weight_concept_text":"","notes":""}`;
@@ -2000,8 +2017,10 @@ async function calculate() {
   const airlineCode = airlineEl.value;
   const airlineName = airlineEl.selectedOptions[0].text.split('·')[1]?.trim().split('—')[0].trim() || airlineCode;
   const cabin = document.getElementById('sel-class').value;
+  const origin = document.getElementById('inp-origin').value.trim();
+  const destination = document.getElementById('inp-destination').value.trim();
   const allowance = getCourierAllowance();
-  console.log('[3] airline:', airlineCode, 'cabin:', cabin, 'allowance:', JSON.stringify(allowance));
+  console.log('[3] airline:', airlineCode, 'cabin:', cabin, 'route:', origin, '->', destination, 'allowance:', JSON.stringify(allowance));
 
   document.getElementById('loading-card').style.display = '';
   document.getElementById('loading-airline').textContent = `${airlineCode} ${airlineName}`;
@@ -2010,7 +2029,7 @@ async function calculate() {
   document.getElementById('calc-btn').disabled = true;
 
   try {
-    const prompt = buildLookupPrompt(airlineCode, airlineName, cabin);
+    const prompt = buildLookupPrompt(airlineCode, airlineName, cabin, origin, destination);
     console.log('[4] lookup prompt built, length:', prompt.length);
     const ctrl = new AbortController();
     const timer = setTimeout(() => { console.log('[TIMEOUT] 60s abort fired'); ctrl.abort(); }, 60000);
