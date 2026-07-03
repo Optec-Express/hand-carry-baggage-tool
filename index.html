@@ -938,7 +938,7 @@ body {
         </select>
       </div>
       <div class="field">
-        <label>每件限重</label>
+        <label>机票含 kg（每件）</label>
         <select id="sel-bag-weight">
           <option value="auto">自动判断</option>
           <option value="23">23 kg</option>
@@ -946,6 +946,9 @@ body {
         </select>
       </div>
     </div>
+    <p class="paste-hint" style="margin-top:6px; margin-bottom:0;">
+      "机票含 kg" 是这张票每件行李免费包含的重量，超出这个数才收超重费；航司真正"最大不接受"的限重永远以官方数据为准，不受这里影响
+    </p>
     <p class="paste-hint" style="margin-top:10px;">
       不用填人数——工具会按当前货物清单，倒算最少需要几位飞人、每人拿几件多重
     </p>
@@ -1792,7 +1795,8 @@ function buildLookupPrompt(airlineCode, airlineName, cabin) {
 IMPORTANT distinction: don't confuse the "free/standard" allowance with the "maximum" — a bag over the free weight but under the maximum just costs an overweight fee; a bag over the MAXIMUM cannot be checked in as a single piece at all (must be split or shipped as cargo instead). We need the MAXIMUM for weight_limit_kg and linear_limit_cm below, not the standard free allowance.
 
 Provide:
-- weight_limit_kg: the ABSOLUTE MAXIMUM weight a single checked bag may be, even paying overweight fees (e.g. many airlines cap this around 32kg per piece for manual-handling safety regardless of cabin) — NOT the free/standard allowance (which is usually lower, e.g. 23kg economy)
+- weight_limit_kg: the ABSOLUTE MAXIMUM weight a single checked bag may be, even paying overweight fees (e.g. many airlines cap this around 32kg per piece for manual-handling safety regardless of cabin) — NOT the free/standard allowance (which is usually lower, e.g. 23kg economy). This is a fixed policy fact, never a fare choice.
+- standard_weight_kg: the STANDARD/free weight allowance per bag before an overweight fee applies (e.g. 23kg economy) — this is the SMALLER number, different from weight_limit_kg above
 - linear_limit_cm: the ABSOLUTE MAXIMUM linear dimension L+W+H a single bag may be, even paying oversize fees — NOT the free/standard size allowance (e.g. many airlines cap this around 203cm/80in as a "will not accept beyond this" ceiling, similar in spirit to the ~32kg weight ceiling — that free/standard 158cm figure that shows up everywhere is the SMALLER, different, free-tier number; don't return that one here)
 - length_limit_cm / width_limit_cm / height_limit_cm: individual per-dimension MAXIMUM caps if the airline states them instead of/alongside linear, else null
 - free_bags_per_pax: standard number of free checked bags per passenger in this cabin
@@ -1808,14 +1812,15 @@ Provide:
 - notes: short Chinese-only note on anything worth flagging (e.g. fees vary by route/season, or which concept applies to which routes), empty string if nothing
 
 Reply ONLY valid JSON, no markdown, no explanation:
-{"airline_code":"${airlineCode}","airline_name_cn":"string","cabin_class":"${cabin}","weight_limit_kg":23,"linear_limit_cm":158,"length_limit_cm":null,"width_limit_cm":null,"height_limit_cm":null,"free_bags_per_pax":1,"max_bags_per_pax":10,"excess_bag_fee_usd":200,"overweight_fee_usd":100,"oversize_fee_usd":150,"excess_bag_fee_text":"USD 200/bag","overweight_fee_text":"USD 100/bag","oversize_fee_text":"USD 150/bag","weight_concept_available":false,"weight_concept_allowance_kg":null,"weight_concept_excess_fee_usd_per_kg":null,"weight_concept_text":"","notes":""}`;
+{"airline_code":"${airlineCode}","airline_name_cn":"string","cabin_class":"${cabin}","weight_limit_kg":32,"standard_weight_kg":23,"linear_limit_cm":203,"length_limit_cm":null,"width_limit_cm":null,"height_limit_cm":null,"free_bags_per_pax":1,"max_bags_per_pax":10,"excess_bag_fee_usd":200,"overweight_fee_usd":100,"oversize_fee_usd":150,"excess_bag_fee_text":"USD 200/bag","overweight_fee_text":"USD 100/bag","oversize_fee_text":"USD 150/bag","weight_concept_available":false,"weight_concept_allowance_kg":null,"weight_concept_excess_fee_usd_per_kg":null,"weight_concept_text":"","notes":""}`;
 }
 
 // Deterministic bin-packing: each cargo item is an already-boxed physical piece
 // with FIXED dims/weight — nothing gets reshaped or merged. The only decisions
 // are which courier carries which pieces, capped at max_bags_per_pax each.
 function packCouriers(items, rules) {
-  const bagWeightLimit = rules.weight_limit_kg;
+  const maxWeightKg    = rules.weight_limit_kg;                        // airline's hard "will not accept" ceiling — fixed policy fact
+  const standardWeightKg = rules.standard_weight_kg || maxWeightKg;    // ticket-included per-bag weight before an overweight fee applies
   const freeBagsPerPax = rules.free_bags_per_pax || 1;
   const maxBagsPerPax  = rules.max_bags_per_pax || 10;
   const linearLimit    = rules.linear_limit_cm;
@@ -1830,7 +1835,8 @@ function packCouriers(items, rules) {
         || (rules.height_limit_cm && it.h > rules.height_limit_cm);
       pieces.push({
         desc: it.desc, l: it.l, w: it.w, h: it.h, kg: it.kg, linear,
-        overweight: it.kg > bagWeightLimit,
+        overweight: it.kg > standardWeightKg,
+        exceedsMax: it.kg > maxWeightKg,
         oversize: !!oversize,
       });
     }
@@ -1850,8 +1856,9 @@ function packCouriers(items, rules) {
         total_weight_kg: p.kg,
         linear_cm: p.linear,
         overweight: p.overweight,
+        exceedsMax: p.exceedsMax,
         oversize: p.oversize,
-        status: p.overweight ? '超重' : (p.oversize ? '超尺寸' : '合规'),
+        status: p.exceedsMax ? '超出最大限重' : (p.overweight ? '超重' : (p.oversize ? '超尺寸' : '合规')),
       }))
     });
   }
@@ -1862,6 +1869,7 @@ function packCouriers(items, rules) {
   const excessBags = Math.max(0, totalBags - totalCouriers * freeBagsPerPax);
   const overweightCount = pieces.filter(p => p.overweight).length;
   const oversizeCount = pieces.filter(p => p.oversize).length;
+  const exceedsMaxCount = pieces.filter(p => p.exceedsMax).length;
 
   const overweightCost = overweightCount * (rules.overweight_fee_usd || 0);
   const oversizeCost   = oversizeCount * (rules.oversize_fee_usd || 0);
@@ -1902,6 +1910,7 @@ function packCouriers(items, rules) {
   const details = [recommended.detail];
   if (overweightCount) details.push(`${overweightCount} 件超重，按 ${rules.overweight_fee_text || rules.overweight_fee_usd + ' USD/件'} 收取`);
   if (oversizeCount) details.push(`${oversizeCount} 件超尺寸，按 ${rules.oversize_fee_text || rules.oversize_fee_usd + ' USD/件'} 收取`);
+  if (exceedsMaxCount) details.unshift(`⚠ ${exceedsMaxCount} 件超过航司最大限重 ${maxWeightKg}kg，柜台可能拒收，需拆分或走货运，费用估算仅按超重费粗略计`);
 
   return {
     couriers,
@@ -2014,10 +2023,11 @@ async function calculate() {
     rules.airline_code = airlineCode;
     rules.airline_name_cn = airlineName;
     rules.cabin_class = cabin;
-    // A manual override at the top takes priority over the AI's lookup —
-    // bake it into rules so the results display and recalc() both see it.
+    // A manual override at the top takes priority over the AI's lookup for
+    // what the ticket includes — but never for weight_limit_kg, which is the
+    // airline's fixed "will not accept beyond this" policy fact, not a fare choice.
     if (allowance.free !== 'auto') rules.free_bags_per_pax = parseInt(allowance.free);
-    if (allowance.weight !== 'auto') rules.weight_limit_kg = parseFloat(allowance.weight);
+    if (allowance.weight !== 'auto') rules.standard_weight_kg = parseFloat(allowance.weight);
 
     const packed = packCouriers(items, rules);
     if (weightEstimated) {
@@ -2057,7 +2067,8 @@ function renderResults(r) {
   // Rules strip — the 4 numbers that drive packCouriers() are editable so the
   // user can correct an AI lookup mistake and hit 重新计算 without a new AI call.
   const editableItems = [
-    { id: 'rule-weight',  v: rules.weight_limit_kg,     l: '每件限重（最大，kg）' },
+    { id: 'rule-weight',  v: rules.weight_limit_kg,      l: '每件限重（最大，kg）' },
+    { id: 'rule-std-kg',  v: rules.standard_weight_kg,   l: '机票含 kg（每件，超出算超重）' },
     { id: 'rule-linear',  v: rules.linear_limit_cm,      l: '尺寸上限（最大，L+W+H cm）' },
     { id: 'rule-free',    v: rules.free_bags_per_pax,    l: '每人免费件数' },
     { id: 'rule-maxbags', v: rules.max_bags_per_pax,     l: '每人最多可托运件数' },
@@ -2102,8 +2113,8 @@ function renderResults(r) {
     const totalWeight = bags.reduce((s, b) => s + (b.total_weight_kg || 0), 0);
 
     const bagsHtml = bags.map(bag => {
-      const cls = bag.overweight ? 'err' : bag.oversize ? 'warn' : 'ok';
-      const statusText = bag.status || (bag.overweight ? '超重' : bag.oversize ? '超尺寸' : '合规');
+      const cls = (bag.exceedsMax || bag.overweight) ? 'err' : bag.oversize ? 'warn' : 'ok';
+      const statusText = bag.status || (bag.exceedsMax ? '超出最大限重' : bag.overweight ? '超重' : bag.oversize ? '超尺寸' : '合规');
       const itemsHtml = (bag.items || []).map(it =>
         `<div class="bag-item">
           <span class="iname">${it.label || it.description || '—'}</span>
@@ -2195,6 +2206,7 @@ function renderResults(r) {
 function recalc() {
   if (!lastCalc) return;
   const weight  = parseFloat(document.getElementById('rule-weight').value);
+  const stdKg   = parseFloat(document.getElementById('rule-std-kg').value);
   const linear  = parseFloat(document.getElementById('rule-linear').value);
   const free    = parseInt(document.getElementById('rule-free').value);
   const maxBags = parseInt(document.getElementById('rule-maxbags').value);
@@ -2202,6 +2214,7 @@ function recalc() {
   const rules = {
     ...lastCalc.rules,
     weight_limit_kg: !isNaN(weight) ? weight : lastCalc.rules.weight_limit_kg,
+    standard_weight_kg: !isNaN(stdKg) ? stdKg : lastCalc.rules.standard_weight_kg,
     linear_limit_cm: !isNaN(linear) ? linear : lastCalc.rules.linear_limit_cm,
     free_bags_per_pax: !isNaN(free) ? free : lastCalc.rules.free_bags_per_pax,
     max_bags_per_pax: !isNaN(maxBags) && maxBags > 0 ? maxBags : lastCalc.rules.max_bags_per_pax,
