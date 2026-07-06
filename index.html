@@ -2115,6 +2115,11 @@ async function calculate() {
     // airline's fixed "will not accept beyond this" policy fact, not a fare choice.
     if (allowance.free !== 'auto') rules.free_bags_per_pax = parseInt(allowance.free);
     if (allowance.weight !== 'auto') rules.standard_weight_kg = parseFloat(allowance.weight);
+    // These are practical/policy caps the user is expected to verify themselves —
+    // always start at 0 (not set) on the FIRST lookup. Once the user edits them
+    // and hits 重新计算, renderResults() will echo back their real value instead.
+    rules.max_bags_per_pax = 0;
+    rules.max_total_weight_kg = 0;
 
     const packed = packCouriers(items, rules);
     if (weightEstimated) {
@@ -2190,12 +2195,12 @@ function renderResults(r) {
     + group('group-ticket', renderGroup(ticketGroup))
     + group('group-fee', renderGroup(feeGroup));
 
-  // These two are always shown as 0 regardless of any AI guess — they're
-  // practical/policy limits the user is expected to know and enter themselves,
-  // not facts to trust from a lookup. 0 = "not set" (no cap applied).
+  // These two reflect whatever's actually in `rules` right now — 0 on the very
+  // first AI lookup (calculate() forces that), but after the user edits one and
+  // hits 重新计算, the real value they set is echoed back instead of reverting.
   document.getElementById('rules-maxbags').innerHTML =
-    `<div class="rule-block maxbags-block"><span class="lbl">每人最多可托运（人工核实）</span><input type="number" id="rule-maxbags" value="0"><span class="lbl">件</span></div>`
-    + `<div class="rule-block maxbags-block"><span class="lbl">每人最多限重（人工核实）</span><input type="number" id="rule-max-total-weight" value="0"><span class="lbl">kg</span></div>`;
+    `<div class="rule-block maxbags-block"><span class="lbl">每人最多可托运（人工核实）</span><input type="number" id="rule-maxbags" value="${rules.max_bags_per_pax ?? 0}"><span class="lbl">件</span></div>`
+    + `<div class="rule-block maxbags-block"><span class="lbl">每人最多限重（人工核实）</span><input type="number" id="rule-max-total-weight" value="${rules.max_total_weight_kg ?? 0}"><span class="lbl">kg</span></div>`;
 
   const noteEl = document.getElementById('rules-note');
   noteEl.innerHTML = '';
