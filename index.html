@@ -1852,9 +1852,9 @@ function buildLookupPrompt(airlineCode, airlineName, cabin, origin, destination)
 
   let zoneNote;
   if (hasRoute && airlineCode === 'CX') {
-    zoneNote = `\nHere is Cathay Pacific's ACTUAL published fee table by zone pair. You also have live web search — use it to look up (search terms like "Cathay Pacific baggage zone definition 第一区 第二区 国家" or the official CX baggage page) which zone (往返香港/第一区/第二/三区/第四区/第五/六区) each of ${origin} and ${destination} actually falls into — do NOT guess this from memory, verify it via search. Once you know the two zones, READ the matching cell from the table below for the fee — do NOT invent a number. Report which two zones you found via search, and cite what you searched, in notes.\n\n${CX_ZONE_FEE_TABLE}\n\n(oversize_fee_usd isn't in this table — estimate that one as usual.)`;
+    zoneNote = `\nHere is Cathay Pacific's ACTUAL published fee table by zone pair — classify which zone (往返香港/第一区/第二/三区/第四区/第五/六区) each of ${origin} and ${destination} falls into as best you can, then READ the matching cell from this table below. Do NOT invent numbers — only use what's in this table for excess_bag_fee_usd and overweight_fee_usd. Report which two zones you classified ${origin} and ${destination} into in notes, and flag this as a best-effort classification the user should verify (no verified zone-country list was available for this lookup).\n\n${CX_ZONE_FEE_TABLE}\n\n(oversize_fee_usd isn't in this table — estimate that one as usual.)`;
   } else if (hasRoute) {
-    zoneNote = `\nIMPORTANT: ${airlineCode}'s excess/overweight/oversize baggage fees are usually tiered by a fare-zone system based on the origin-destination country/region pair. You have live web search — use it to find ${airlineCode}'s actual official baggage fee page and zone definitions for this SPECIFIC route (${origin} → ${destination}), rather than guessing from memory. Report what you found and searched for in notes.`;
+    zoneNote = `\nIMPORTANT: ${airlineCode}'s excess/overweight/oversize baggage fees are usually tiered by a fare-zone system based on the origin-destination country/region pair. Work out which zone this SPECIFIC route (${origin} → ${destination}) falls into, and return the fee numbers for THAT zone — not a generic cross-zone average. Mention which zone you used in notes, and flag it as an estimate to verify.`;
   } else {
     zoneNote = `\nNo route was given, so excess/overweight/oversize fees will necessarily be a rough cross-zone average — say so in notes and recommend the user provide 始发港/目的港 for an accurate zone-specific number.`;
   }
@@ -2059,11 +2059,9 @@ async function calculate() {
 
   try {
     const prompt = buildLookupPrompt(airlineCode, airlineName, cabin, origin, destination);
-    const needsSearch = !!(origin && destination);
-    console.log('[4] lookup prompt built, length:', prompt.length, 'needsSearch:', needsSearch);
+    console.log('[4] lookup prompt built, length:', prompt.length);
     const ctrl = new AbortController();
-    const timeoutMs = needsSearch ? 90000 : 60000; // live search can take longer than a plain recall
-    const timer = setTimeout(() => { console.log('[TIMEOUT] abort fired'); ctrl.abort(); }, timeoutMs);
+    const timer = setTimeout(() => { console.log('[TIMEOUT] 60s abort fired'); ctrl.abort(); }, 60000);
     let res;
     try {
       console.log('[5] sending fetch...');
@@ -2077,7 +2075,6 @@ async function calculate() {
         body: JSON.stringify({
           model: 'claude-sonnet-4-6',
           max_tokens: 1000,
-          needsSearch,
           messages: [{ role: 'user', content: prompt }]
         })
       });
