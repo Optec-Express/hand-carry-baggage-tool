@@ -4,6 +4,11 @@
 // more capable text model instead.
 const GROQ_MODEL_VISION = 'meta-llama/llama-4-scout-17b-16e-instruct';
 const GROQ_MODEL_TEXT = 'llama-3.3-70b-versatile';
+// Has real web search built in — for requests that need to look something up
+// live (e.g. which fare zone an airport falls into) rather than recall from
+// training data. response_format json_object is dropped for this model since
+// it appears incompatible with its tool-use flow (caused a transport error).
+const GROQ_MODEL_SEARCH = 'groq/compound';
 const GROQ_ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions';
 
 function toGroq(body) {
@@ -48,13 +53,16 @@ function toGroq(body) {
              'All keys and string values must use double quotes.'
   });
 
-  return {
-    model: hasImage ? GROQ_MODEL_VISION : GROQ_MODEL_TEXT,
+  const model = hasImage ? GROQ_MODEL_VISION : (body.needsSearch ? GROQ_MODEL_SEARCH : GROQ_MODEL_TEXT);
+
+  const req = {
+    model,
     messages: groqMessages,
     max_tokens: body.max_tokens || 8192,
     temperature: 0.1,
-    response_format: { type: 'json_object' }
   };
+  if (model !== GROQ_MODEL_SEARCH) req.response_format = { type: 'json_object' };
+  return req;
 }
 
 function stripFences(text) {

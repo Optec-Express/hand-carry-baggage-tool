@@ -20,6 +20,11 @@ import threading
 # lookups, compound arithmetic). Text-only requests get a larger text model.
 GROQ_MODEL_VISION = "meta-llama/llama-4-scout-17b-16e-instruct"
 GROQ_MODEL_TEXT   = "llama-3.3-70b-versatile"
+# Has real web search built in — for requests that need to look something up
+# live (e.g. which fare zone an airport falls into) rather than recall from
+# training data. response_format json_object is dropped for this model since
+# it appears incompatible with its tool-use flow (caused a transport error).
+GROQ_MODEL_SEARCH = "groq/compound"
 GROQ_ENDPOINT = "https://api.groq.com/openai/v1/chat/completions"
 PORT     = 8765
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -105,13 +110,21 @@ def to_groq(body_bytes):
         )
     })
 
+    if has_image:
+        model = GROQ_MODEL_VISION
+    elif data.get('needsSearch'):
+        model = GROQ_MODEL_SEARCH
+    else:
+        model = GROQ_MODEL_TEXT
+
     groq_req = {
-        'model':           GROQ_MODEL_VISION if has_image else GROQ_MODEL_TEXT,
-        'messages':        groq_messages,
-        'max_tokens':      data.get('max_tokens', 8192),
-        'temperature':     0.1,
-        'response_format': {'type': 'json_object'},
+        'model':      model,
+        'messages':   groq_messages,
+        'max_tokens': data.get('max_tokens', 8192),
+        'temperature': 0.1,
     }
+    if model != GROQ_MODEL_SEARCH:
+        groq_req['response_format'] = {'type': 'json_object'}
     return json.dumps(groq_req).encode('utf-8')
 
 
