@@ -1721,8 +1721,8 @@ Reply with ONLY this JSON, no explanation, no markdown, no extra text:
       const msg = data.error?.message || `HTTP ${res.status}`;
       if (res.status === 401 || msg.includes('API key') || msg.includes('key not valid'))
         throw new Error('API Key 无效，请检查 config.json');
-      if (msg.includes('quota') || msg.includes('rate_limit') || msg.toLowerCase().includes('rate limit'))
-        throw new Error('Groq 配额已用尽或请求过于频繁，请稍后重试');
+      if (msg.includes('quota') || msg.includes('RESOURCE_EXHAUSTED') || msg.toLowerCase().includes('rate limit'))
+        throw new Error('Gemini 配额已用尽或请求过于频繁，请稍后重试');
       throw new Error(msg);
     }
 
@@ -1816,11 +1816,12 @@ function importOcrItems() {
 }
 
 // ─── Build prompt (rules lookup ONLY — no packing/arithmetic asked of the AI) ─
-// The model (a small Groq model) proved unreliable at simultaneous bin-packing +
-// arithmetic + JSON formatting — it once literally invented new box dimensions
-// by "merging" cartons, which is physically nonsensical for pre-packed cargo.
-// So the AI's job is now just to recall airline policy numbers; all bin-packing,
-// headcount, and cost math happens deterministically in packCouriers() below.
+// Earlier testing on a smaller model showed it was unreliable at simultaneous
+// bin-packing + arithmetic + JSON formatting — it once literally invented new
+// box dimensions by "merging" cartons, which is physically nonsensical for
+// pre-packed cargo. So the AI's job is just to recall/look up airline policy
+// numbers; all bin-packing, headcount, and cost math happens deterministically
+// in packCouriers() below.
 // Verified from Cathay Pacific's own published fee tables (screenshot supplied
 // by the user) — feeding the AI the real numbers so it only has to classify
 // the route into a zone and read a cell, instead of recalling dollar figures
@@ -1852,9 +1853,9 @@ function buildLookupPrompt(airlineCode, airlineName, cabin, origin, destination)
 
   let zoneNote;
   if (hasRoute && airlineCode === 'CX') {
-    zoneNote = `\nHere is Cathay Pacific's ACTUAL published fee table by zone pair — classify which zone (往返香港/第一区/第二/三区/第四区/第五/六区) each of ${origin} and ${destination} falls into as best you can, then READ the matching cell from this table below. Do NOT invent numbers — only use what's in this table for excess_bag_fee_usd and overweight_fee_usd. Report which two zones you classified ${origin} and ${destination} into in notes, and flag this as a best-effort classification the user should verify (no verified zone-country list was available for this lookup).\n\n${CX_ZONE_FEE_TABLE}\n\n(oversize_fee_usd isn't in this table — estimate that one as usual.)`;
+    zoneNote = `\nHere is Cathay Pacific's ACTUAL published fee table by zone pair. You also have live Google Search — use it to verify which zone (往返香港/第一区/第二/三区/第四区/第五/六区) each of ${origin} and ${destination} falls into (search e.g. "Cathay Pacific baggage zone 第一区 第二区 国家" or check the official CX baggage page) — do NOT guess this from memory alone. Once you've determined the two zones, READ the matching cell from the table below for the fee — do NOT invent a number. Report which two zones you found and what you searched in notes.\n\n${CX_ZONE_FEE_TABLE}\n\n(oversize_fee_usd isn't in this table — estimate that one as usual.)`;
   } else if (hasRoute) {
-    zoneNote = `\nIMPORTANT: ${airlineCode}'s excess/overweight/oversize baggage fees are usually tiered by a fare-zone system based on the origin-destination country/region pair. Work out which zone this SPECIFIC route (${origin} → ${destination}) falls into, and return the fee numbers for THAT zone — not a generic cross-zone average. Mention which zone you used in notes, and flag it as an estimate to verify.`;
+    zoneNote = `\nIMPORTANT: ${airlineCode}'s excess/overweight/oversize baggage fees are usually tiered by a fare-zone system based on the origin-destination country/region pair. You have live Google Search — use it to find ${airlineCode}'s actual official baggage fee page and zone definitions for this SPECIFIC route (${origin} → ${destination}), rather than guessing from memory. Report what you found and searched for in notes.`;
   } else {
     zoneNote = `\nNo route was given, so excess/overweight/oversize fees will necessarily be a rough cross-zone average — say so in notes and recommend the user provide 始发港/目的港 for an accurate zone-specific number.`;
   }
@@ -2059,9 +2060,11 @@ async function calculate() {
 
   try {
     const prompt = buildLookupPrompt(airlineCode, airlineName, cabin, origin, destination);
-    console.log('[4] lookup prompt built, length:', prompt.length);
+    const needsSearch = !!(origin && destination);
+    console.log('[4] lookup prompt built, length:', prompt.length, 'needsSearch:', needsSearch);
     const ctrl = new AbortController();
-    const timer = setTimeout(() => { console.log('[TIMEOUT] 60s abort fired'); ctrl.abort(); }, 60000);
+    const timeoutMs = needsSearch ? 90000 : 60000; // grounded search calls can take longer
+    const timer = setTimeout(() => { console.log('[TIMEOUT] abort fired'); ctrl.abort(); }, timeoutMs);
     let res;
     try {
       console.log('[5] sending fetch...');
@@ -2075,6 +2078,7 @@ async function calculate() {
         body: JSON.stringify({
           model: 'claude-sonnet-4-6',
           max_tokens: 1000,
+          needsSearch,
           messages: [{ role: 'user', content: prompt }]
         })
       });
@@ -2091,8 +2095,8 @@ async function calculate() {
       console.error('[8] error response:', msg);
       if (res.status === 401 || (msg.includes('API key') || msg.includes('key not valid')))
         throw new Error('API Key 无效或已过期，请检查 config.json 中的密钥');
-      if (res.status === 429 || msg.includes('quota') || msg.includes('rate_limit') || msg.toLowerCase().includes('rate limit'))
-        throw new Error('Groq 配额已用尽或请求过于频繁，请稍后重试');
+      if (res.status === 429 || msg.includes('quota') || msg.includes('RESOURCE_EXHAUSTED') || msg.toLowerCase().includes('rate limit'))
+        throw new Error('Gemini 配额已用尽或请求过于频繁，请稍后重试');
       throw new Error(msg);
     }
 

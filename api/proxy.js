@@ -1,65 +1,61 @@
-// Vision-capable model only for requests that actually contain an image —
-// it's a small 17B model that proved unreliable at multi-step reasoning
-// (zone lookups, compound arithmetic). Text-only requests get a larger,
-// more capable text model instead.
-const GROQ_MODEL_VISION = 'meta-llama/llama-4-scout-17b-16e-instruct';
-const GROQ_MODEL_TEXT = 'llama-3.3-70b-versatile';
-// groq/compound (Groq's web-search-enabled model) was tried here for live
-// zone lookups but reliably fails with "Request Entity Too Large" regardless
-// of request shape — reverted. If Groq fixes this, re-enable via needsSearch.
-const GROQ_ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions';
+const GEMINI_MODEL = 'gemini-2.5-flash';
 
-function toGroq(body) {
+function toGemini(body) {
   const messages = body.messages || [];
-  let hasImage = false;
+  const needsSearch = !!body.needsSearch;
 
-  const groqMessages = messages.map(msg => {
-    const role = msg.role === 'user' ? 'user' : 'assistant';
+  const contents = messages.map(msg => {
+    const role = msg.role === 'user' ? 'user' : 'model';
     const raw = msg.content;
-    let content;
+    let parts;
 
     if (typeof raw === 'string') {
-      content = raw;
+      parts = [{ text: raw }];
     } else if (Array.isArray(raw)) {
-      content = [];
+      parts = [];
       for (const item of raw) {
         if (item.type === 'text') {
-          content.push({ type: 'text', text: item.text });
+          parts.push({ text: item.text });
         } else if (item.type === 'image') {
           const src = item.source || {};
           if (src.type === 'base64') {
-            hasImage = true;
-            const mediaType = src.media_type || 'image/jpeg';
-            content.push({
-              type: 'image_url',
-              image_url: { url: `data:${mediaType};base64,${src.data || ''}` }
+            parts.push({
+              inlineData: {
+                mimeType: src.media_type || 'image/jpeg',
+                data: src.data || ''
+              }
             });
           }
         }
       }
     } else {
-      content = String(raw);
+      parts = [{ text: String(raw) }];
     }
 
-    return { role, content };
+    return { role, parts };
   });
 
-  groqMessages.unshift({
-    role: 'system',
-    content: 'Output ONLY valid JSON with no markdown fences, no comments, ' +
-             'no trailing commas, no single quotes. ' +
-             'All keys and string values must use double quotes.'
-  });
-
-  const model = hasImage ? GROQ_MODEL_VISION : GROQ_MODEL_TEXT;
-
-  return {
-    model,
-    messages: groqMessages,
-    max_tokens: body.max_tokens || 8192,
+  const generationConfig = {
+    maxOutputTokens: body.max_tokens || 8192,
     temperature: 0.1,
-    response_format: { type: 'json_object' }
   };
+  // Grounding (Google Search) can't be combined with forced JSON mime type —
+  // rely on the system instruction + stripFences() to extract JSON instead.
+  if (!needsSearch) generationConfig.responseMimeType = 'application/json';
+
+  const req = {
+    contents,
+    generationConfig,
+    systemInstruction: {
+      parts: [{
+        text: 'Output ONLY valid JSON with no markdown fences, no comments, ' +
+              'no trailing commas, no single quotes. ' +
+              'All keys and string values must use double quotes.'
+      }]
+    }
+  };
+  if (needsSearch) req.tools = [{ google_search: {} }];
+  return req;
 }
 
 function stripFences(text) {
@@ -69,28 +65,32 @@ function stripFences(text) {
     .trim();
 }
 
-function fromGroq(data) {
+function fromGemini(data) {
   if (data.error) {
-    const msg = data.error.message || 'Groq API 错误';
-    console.error('[Groq ERROR]', data.error.code, msg);
+    const msg = data.error.message || 'Gemini API 错误';
+    console.error('[Gemini ERROR]', data.error.code, msg);
     return { body: { error: { message: msg } }, status: 502 };
   }
 
   let text = '';
   try {
-    const choice = data.choices[0];
-    const reason = choice.finish_reason || '';
-    console.log('[Groq] finish_reason=' + reason);
-    const raw = choice.message.content;
-    if (reason === 'length') {
-      console.warn(`[WARN] 响应被截断（length），已收到 ${raw.length} 字符`);
+    const candidate = data.candidates[0];
+    const reason = candidate.finishReason || '';
+    console.log('[Gemini] finishReason=' + reason);
+    if (reason === 'SAFETY') {
+      text = '[内容被安全过滤器拦截，请修改描述后重试]';
+    } else if (reason === 'MAX_TOKENS') {
+      const raw = candidate.content.parts[0].text;
+      console.warn(`[WARN] 响应被截断（MAX_TOKENS），已收到 ${raw.length} 字符`);
+      text = stripFences(raw);
+    } else {
+      text = stripFences(candidate.content.parts[0].text);
     }
-    text = stripFences(raw);
   } catch (e) {
     text = '响应解析失败: ' + e.message;
   }
 
-  console.log('[Groq text 前200字]', text.slice(0, 200));
+  console.log('[Gemini text 前200字]', text.slice(0, 200));
   return { body: { content: [{ type: 'text', text }] }, status: 200 };
 }
 
@@ -108,9 +108,9 @@ export default async function handler(req, res) {
     return;
   }
 
-  const apiKey = process.env.GROQ_API_KEY;
+  const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    res.status(500).json({ error: { message: 'API Key 未配置，请在 Vercel 项目的 Environment Variables 里设置 GROQ_API_KEY' } });
+    res.status(500).json({ error: { message: 'API Key 未配置，请在 Vercel 项目的 Environment Variables 里设置 GEMINI_API_KEY' } });
     return;
   }
 
@@ -122,32 +122,31 @@ export default async function handler(req, res) {
     return;
   }
 
-  let groqReq;
+  let geminiReq;
   try {
-    groqReq = toGroq(body);
+    geminiReq = toGemini(body);
   } catch (e) {
     res.status(400).json({ error: { message: '请求转换失败: ' + e.message } });
     return;
   }
 
-  try {
-    const groqRes = await fetch(GROQ_ENDPOINT, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
-      },
-      body: JSON.stringify(groqReq)
-    });
-    const data = await groqRes.json();
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
 
-    if (!groqRes.ok) {
-      const msg = data.error?.message || `HTTP ${groqRes.status}`;
+  try {
+    const geminiRes = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(geminiReq)
+    });
+    const data = await geminiRes.json();
+
+    if (!geminiRes.ok) {
+      const msg = data.error?.message || `HTTP ${geminiRes.status}`;
       res.status(502).json({ error: { message: msg } });
       return;
     }
 
-    const { body: outBody, status } = fromGroq(data);
+    const { body: outBody, status } = fromGemini(data);
     res.status(status).json(outBody);
   } catch (e) {
     console.error('[异常]', e);
