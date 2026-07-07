@@ -1,6 +1,7 @@
 // Tried in order; on quota exhaustion / overload the next one takes over.
 // Free tier quotas are per-model, so each entry adds its own daily budget.
-const GEMINI_MODELS = ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.0-flash'];
+// All verified to support url_context + google_search on this key.
+const GEMINI_MODELS = ['gemini-3.5-flash', 'gemini-3.1-flash-lite', 'gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.0-flash'];
 
 function toGemini(body, model) {
   const messages = body.messages || [];
