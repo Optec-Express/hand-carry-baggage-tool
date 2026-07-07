@@ -2240,6 +2240,10 @@ async function calculate() {
           task: 'lookup',
           max_tokens: 4000,
           needsSearch,
+          // CX zones/fees live in local tables; the AI only verifies a few
+          // facts against the official page whose URL is in the prompt, so
+          // web search is dead weight — fetch-only costs a fraction.
+          fetchOnly: airlineCode === 'CX',
           // Shared company-wide cache key on the proxy side (Upstash Redis) —
           // one paid lookup serves every machine for the TTL window.
           cacheKey: `v2:${airlineCode}|${cabin}|${origin}|${destination}`,
