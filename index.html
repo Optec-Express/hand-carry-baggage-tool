@@ -2311,7 +2311,7 @@ function renderResults(r) {
   // amber = fee rates. 每人最多可托运件数 is deliberately NOT grouped with
   // these — it's rendered in its own separate box outside the strip.
   const editableInput = x =>
-    `<div class="rule-block"><span class="lbl">${x.l}</span>${x.prefix ? `<span class="lbl">${x.prefix}</span>` : ''}<input type="number" id="${x.id}" value="${x.v ?? ''}">${x.unit ? `<span class="lbl">${x.unit}</span>` : ''}</div>`;
+    `<div class="rule-block"><span class="lbl">${x.l}</span>${x.prefix ? `<span class="lbl">${x.prefix}</span>` : ''}<input type="number" id="${x.id}" min="0" value="${x.v ?? ''}">${x.unit ? `<span class="lbl">${x.unit}</span>` : ''}</div>`;
   const staticBlock = x =>
     `<div class="rule-block"><span class="lbl">${x.l}</span><span class="val">${x.v}</span></div>`;
   const group = (groupClass, html) => `<div class="rule-group ${groupClass}">${html}</div>`;
@@ -2349,8 +2349,8 @@ function renderResults(r) {
   // first AI lookup (calculate() forces that), but after the user edits one and
   // hits 重新计算, the real value they set is echoed back instead of reverting.
   document.getElementById('rules-maxbags').innerHTML =
-    `<div class="rule-block maxbags-block"><span class="lbl">每人最多可托运（人工核实）</span><input type="number" id="rule-maxbags" value="${rules.max_bags_per_pax ?? 0}"><span class="lbl">件</span></div>`
-    + `<div class="rule-block maxbags-block"><span class="lbl">每人最多限重（人工核实）</span><input type="number" id="rule-max-total-weight" value="${rules.max_total_weight_kg ?? 0}"><span class="lbl">kg</span></div>`;
+    `<div class="rule-block maxbags-block"><span class="lbl">每人最多可托运（人工核实）</span><input type="number" id="rule-maxbags" min="0" value="${rules.max_bags_per_pax ?? 0}"><span class="lbl">件</span></div>`
+    + `<div class="rule-block maxbags-block"><span class="lbl">每人最多限重（人工核实）</span><input type="number" id="rule-max-total-weight" min="0" value="${rules.max_total_weight_kg ?? 0}"><span class="lbl">kg</span></div>`;
 
   const noteEl = document.getElementById('rules-note');
   noteEl.innerHTML = '';
@@ -2482,17 +2482,19 @@ function recalc() {
   const overweightFee = parseFloat(document.getElementById('rule-overweight-fee').value);
   const oversizeFee   = parseFloat(document.getElementById('rule-oversize-fee').value);
 
+  // Negative input is treated as invalid everywhere — fall back to the
+  // previous value (or "no cap") rather than computing with nonsense.
   const rules = {
     ...lastCalc.rules,
-    weight_limit_kg: !isNaN(weight) ? weight : lastCalc.rules.weight_limit_kg,
-    standard_weight_kg: !isNaN(stdKg) ? stdKg : lastCalc.rules.standard_weight_kg,
-    linear_limit_cm: !isNaN(linear) ? linear : lastCalc.rules.linear_limit_cm,
-    free_bags_per_pax: !isNaN(free) ? free : lastCalc.rules.free_bags_per_pax,
+    weight_limit_kg: !isNaN(weight) && weight > 0 ? weight : lastCalc.rules.weight_limit_kg,
+    standard_weight_kg: !isNaN(stdKg) && stdKg > 0 ? stdKg : lastCalc.rules.standard_weight_kg,
+    linear_limit_cm: !isNaN(linear) && linear > 0 ? linear : lastCalc.rules.linear_limit_cm,
+    free_bags_per_pax: !isNaN(free) && free >= 0 ? free : lastCalc.rules.free_bags_per_pax,
     max_bags_per_pax: !isNaN(maxBags) && maxBags > 0 ? maxBags : lastCalc.rules.max_bags_per_pax,
     max_total_weight_kg: !isNaN(maxWeight) && maxWeight > 0 ? maxWeight : 0,
-    excess_bag_fee_usd: !isNaN(excessFee) ? excessFee : lastCalc.rules.excess_bag_fee_usd,
-    overweight_fee_usd: !isNaN(overweightFee) ? overweightFee : lastCalc.rules.overweight_fee_usd,
-    oversize_fee_usd: !isNaN(oversizeFee) ? oversizeFee : lastCalc.rules.oversize_fee_usd,
+    excess_bag_fee_usd: !isNaN(excessFee) && excessFee >= 0 ? excessFee : lastCalc.rules.excess_bag_fee_usd,
+    overweight_fee_usd: !isNaN(overweightFee) && overweightFee >= 0 ? overweightFee : lastCalc.rules.overweight_fee_usd,
+    oversize_fee_usd: !isNaN(oversizeFee) && oversizeFee >= 0 ? oversizeFee : lastCalc.rules.oversize_fee_usd,
   };
   rules.excess_bag_fee_text = `USD ${rules.excess_bag_fee_usd}/件`;
   rules.overweight_fee_text = `USD ${rules.overweight_fee_usd}/件`;
