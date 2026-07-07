@@ -1850,6 +1850,32 @@ const CX_ZONE_INDEX = {
   '第四区': 3,
   '第五区': 4, '第六区': 4, '第五/六区': 4,
 };
+
+// IATA airport → CX zone name, resolved in code so the fee lookup never
+// depends on the AI returning zone fields. Unlisted airports fall back to
+// whatever origin_zone/dest_zone the AI reported.
+const CX_AIRPORT_ZONE = (() => {
+  const z = {};
+  const add = (zone, codes) => codes.forEach(c => { z[c] = zone; });
+  add('香港',   ['HKG']);
+  // 第一区: 内地/澳门/台湾、日韩蒙哈俄(亚)、东南亚
+  add('第一区', ['PEK','PKX','PVG','SHA','CAN','SZX','CTU','TFU','CKG','XIY','HGH','NKG','TSN','WUH','CSX','KMG','XMN','FOC','TAO','DLC','SHE','HRB','ZUH','MFM',
+                 'TPE','TSA','KHH','RMQ',
+                 'NRT','HND','KIX','ITM','NGO','FUK','CTS','OKA','HIJ','SDJ',
+                 'ICN','GMP','PUS','TAE',
+                 'ULN','UBN','ALA','NQZ','VVO','OVB',
+                 'SIN','BKK','DMK','HKT','CNX','KUL','PEN','BKI','CGK','DPS','SUB','SGN','HAN','DAD','CXR','PNH','REP','RGN','MDL','MNL','CEB','CRK','VTE']);
+  // 第二区(南亚) + 第三区(中东) — 费率表里同档
+  add('第二区', ['DAC','DEL','BOM','MAA','BLR','CCU','HYD','COK','AMD','MLE','CMB','KTM']);
+  add('第三区', ['BAH','TLV','DOH','RUH','JED','DMM','DXB','AUH','SHJ']);
+  // 第四区: 西南太平洋、欧洲、南非
+  add('第四区', ['SYD','MEL','BNE','PER','ADL','CBR','AKL','CHC','WLG','NAN',
+                 'LHR','LGW','MAN','EDI','DUB','CDG','ORY','FRA','MUC','BER','DUS','AMS','BRU','VIE','ZRH','GVA','MXP','FCO','MAD','BCN','LIS','OPO','CPH','ARN','OSL','HEL','PRG','BUD','JNB','CPT']);
+  // 第五区(北美) + 第六区(中南美) — 费率表里同档
+  add('第五区', ['JFK','EWR','BOS','IAD','DCA','ORD','DFW','ATL','MIA','LAX','SFO','SAN','SEA','LAS','PHX','DEN','IAH','YVR','YYZ','YUL','YYC','MEX','CUN']);
+  add('第六区', ['GRU','GIG','SCL','LIM']);
+  return z;
+})();
 const CX_EXCESS_FEE = [
   [null, 100, 130, 150, 200],
   [100,  120, 150, 170, 210],
@@ -1865,11 +1891,16 @@ const CX_OVERWEIGHT_FEE = [
   [150,  150, 150, 150, 150],
 ];
 
-function cxApplyZoneFees(rules) {
-  const o = CX_ZONE_INDEX[(rules.origin_zone || '').trim()];
-  const d = CX_ZONE_INDEX[(rules.dest_zone || '').trim()];
-  if (o === undefined || d === undefined) return;
-  const zonePair = `${rules.origin_zone}↔${rules.dest_zone}`;
+function cxApplyZoneFees(rules, originIata, destIata) {
+  const oZone = CX_AIRPORT_ZONE[(originIata || '').trim().toUpperCase()] || (rules.origin_zone || '').trim();
+  const dZone = CX_AIRPORT_ZONE[(destIata || '').trim().toUpperCase()] || (rules.dest_zone || '').trim();
+  const o = CX_ZONE_INDEX[oZone];
+  const d = CX_ZONE_INDEX[dZone];
+  if (o === undefined || d === undefined) {
+    console.warn('[CX] zone unresolved, keeping AI fees:', originIata, '->', oZone, ';', destIata, '->', dZone);
+    return;
+  }
+  const zonePair = `${oZone}↔${dZone}`;
   const excess = CX_EXCESS_FEE[o][d];
   const over   = CX_OVERWEIGHT_FEE[o][d];
   if (excess != null) {
@@ -2154,9 +2185,10 @@ async function calculate() {
     rules.airline_code = airlineCode;
     rules.airline_name_cn = airlineName;
     rules.cabin_class = cabin;
-    // CX: the AI only names the two zones; the actual zone-pair fees come from
-    // the hardcoded official matrices so a misread table cell can't slip in.
-    if (airlineCode === 'CX') cxApplyZoneFees(rules);
+    // CX: zones resolve from the airport codes in code (AI zone fields are
+    // only a fallback for unlisted airports); the zone-pair fees then come
+    // from the hardcoded official matrices, overriding the AI's numbers.
+    if (airlineCode === 'CX') cxApplyZoneFees(rules, origin, destination);
     // A manual override at the top takes priority over the AI's lookup for
     // what the ticket includes — but never for weight_limit_kg, which is the
     // airline's fixed "will not accept beyond this" policy fact, not a fare choice.
