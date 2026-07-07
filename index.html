@@ -2220,7 +2220,7 @@ async function calculate() {
     const needsSearch = !!(origin && destination);
     console.log('[4] lookup prompt built, length:', prompt.length, 'needsSearch:', needsSearch);
     const ctrl = new AbortController();
-    const timeoutMs = needsSearch ? 90000 : 60000; // grounded search calls can take longer
+    const timeoutMs = needsSearch ? 180000 : 60000; // web-search lookups run multiple rounds and can take minutes
     const timer = setTimeout(() => { console.log('[TIMEOUT] abort fired'); ctrl.abort(); }, timeoutMs);
     let res;
     try {
@@ -2302,7 +2302,10 @@ async function calculate() {
 
   } catch (e) {
     console.error('[ERR] caught:', e.message, e);
-    showErr(e.message || '未知错误，请检查网络连接后重试');
+    const aborted = e.name === 'AbortError' || /abort/i.test(e.message || '');
+    showErr(aborted
+      ? '查询超时——联网搜索这次跑得比较久，请再点一次计算（结果一旦查到会进缓存，之后就快了）'
+      : (e.message || '未知错误，请检查网络连接后重试'));
   } finally {
     document.getElementById('loading-card').style.display = 'none';
     document.getElementById('calc-btn').disabled = false;
