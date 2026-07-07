@@ -1937,6 +1937,7 @@ Provide:
 - weight_limit_kg: the ABSOLUTE MAXIMUM weight a single checked bag may be, even paying overweight fees (e.g. many airlines cap this around 32kg per piece for manual-handling safety regardless of cabin) — NOT the free/standard allowance (which is usually lower, e.g. 23kg economy). This is a fixed policy fact, never a fare choice.
 - standard_weight_kg: the STANDARD/free weight allowance per bag before an overweight fee applies (e.g. 23kg economy) — this is the SMALLER number, different from weight_limit_kg above
 - linear_limit_cm: the ABSOLUTE MAXIMUM linear dimension L+W+H a single bag may be, even paying oversize fees — NOT the free/standard size allowance (e.g. many airlines cap this around 203cm/80in as a "will not accept beyond this" ceiling, similar in spirit to the ~32kg weight ceiling — that free/standard 158cm figure that shows up everywhere is the SMALLER, different, free-tier number; don't return that one here)
+- standard_linear_cm: the STANDARD/free linear size (L+W+H) limit beyond which the oversize FEE starts to apply — this IS that ubiquitous 158cm figure, the SMALLER size number, different from linear_limit_cm above
 - length_limit_cm / width_limit_cm / height_limit_cm: individual per-dimension MAXIMUM caps if the airline states them instead of/alongside linear, else null
 - free_bags_per_pax: standard number of free checked bags per passenger in this cabin
 - max_bags_per_pax: the MAXIMUM total bags one passenger may check in total, even paying excess fees (many airlines cap this, e.g. 9-10 bags/pax); if genuinely uncapped, use a sensible conservative number like 10
@@ -1951,12 +1952,16 @@ Provide:
 - notes: short Chinese-only note — MUST mention which fare zone was used for the fees if a route was given, empty string only if truly nothing to add
 
 Reply ONLY valid JSON, no markdown, no explanation:
-{"airline_code":"${airlineCode}","airline_name_cn":"string","cabin_class":"${cabin}","weight_limit_kg":32,"standard_weight_kg":23,"linear_limit_cm":203,"length_limit_cm":null,"width_limit_cm":null,"height_limit_cm":null,"free_bags_per_pax":1,"max_bags_per_pax":10,"excess_bag_fee_usd":200,"overweight_fee_usd":100,"oversize_fee_usd":150,"excess_bag_fee_text":"USD 200/bag","overweight_fee_text":"USD 100/bag","oversize_fee_text":"USD 150/bag","weight_concept_available":false,"weight_concept_allowance_kg":null,"weight_concept_excess_fee_usd_per_kg":null,"weight_concept_text":"","notes":""}`;
+{"airline_code":"${airlineCode}","airline_name_cn":"string","cabin_class":"${cabin}","weight_limit_kg":32,"standard_weight_kg":23,"linear_limit_cm":203,"standard_linear_cm":158,"length_limit_cm":null,"width_limit_cm":null,"height_limit_cm":null,"free_bags_per_pax":1,"max_bags_per_pax":10,"excess_bag_fee_usd":200,"overweight_fee_usd":100,"oversize_fee_usd":150,"excess_bag_fee_text":"USD 200/bag","overweight_fee_text":"USD 100/bag","oversize_fee_text":"USD 150/bag","weight_concept_available":false,"weight_concept_allowance_kg":null,"weight_concept_excess_fee_usd_per_kg":null,"weight_concept_text":"","notes":""}`;
 }
 
-// Deterministic bin-packing: each cargo item is an already-boxed physical piece
-// with FIXED dims/weight — nothing gets reshaped or merged. The only decisions
-// are which courier carries which pieces, capped at max_bags_per_pax each.
+// Deterministic bin-packing in two stages. Stage 1 consolidates boxes into as
+// few checked pieces as possible: courier headcount (ticket + day rate) costs
+// far more than baggage fees, so a merged piece is allowed to go overweight
+// (> standard kg) and oversize (> standard linear) as long as it stays within
+// the airline's hard acceptance ceilings (weight_limit_kg / linear_limit_cm /
+// per-dimension caps). Stage 2 deals the pieces out to couriers, capped at
+// max_bags_per_pax each. Boxes themselves keep their fixed dims/weight.
 function packCouriers(items, rules) {
   const maxWeightKg    = rules.weight_limit_kg;                        // airline's hard "will not accept" ceiling — fixed policy fact
   const standardWeightKg = rules.standard_weight_kg || maxWeightKg;    // ticket-included per-bag weight before an overweight fee applies
@@ -1964,22 +1969,50 @@ function packCouriers(items, rules) {
   const maxBagsPerPax  = rules.max_bags_per_pax || 10;
   const maxTotalWeightKg = rules.max_total_weight_kg || 0;             // 0 = no cap; user-set practical ceiling on one courier's total load
   const linearLimit    = rules.linear_limit_cm;
+  const standardLinearCm = rules.standard_linear_cm || 158;            // free-tier size; beyond it the oversize FEE applies (hard cap is linearLimit)
 
-  const pieces = [];
+  // Explode rows into individual boxes; sort each box's dims so the two
+  // largest form the footprint and bundles stack along the smallest axis.
+  const boxes = [];
   items.forEach(it => {
     for (let i = 0; i < it.q; i++) {
-      const linear = it.l + it.w + it.h;
-      const oversize = (linearLimit && linear > linearLimit)
-        || (rules.length_limit_cm && it.l > rules.length_limit_cm)
-        || (rules.width_limit_cm  && it.w > rules.width_limit_cm)
-        || (rules.height_limit_cm && it.h > rules.height_limit_cm);
-      pieces.push({
-        desc: it.desc, l: it.l, w: it.w, h: it.h, kg: it.kg, linear,
-        overweight: it.kg > standardWeightKg,
-        exceedsMax: it.kg > maxWeightKg,
-        oversize: !!oversize,
-      });
+      const s = [it.l, it.w, it.h].sort((a, b) => b - a);
+      boxes.push({ desc: it.desc, l: it.l, w: it.w, h: it.h, kg: it.kg, s0: s[0], s1: s[1], s2: s[2] });
     }
+  });
+
+  // Stage 1 — greedy first-fit: similar footprints first so max() wastes
+  // little, each box goes into the first bundle it fits without breaking a
+  // hard cap; otherwise it opens a new bundle.
+  boxes.sort((a, b) => b.s0 - a.s0 || b.s1 - a.s1 || b.kg - a.kg);
+  const hardKg     = maxWeightKg || Infinity;
+  const hardLinear = linearLimit || Infinity;
+  const bundles = [];
+  for (const b of boxes) {
+    let placed = false;
+    for (const bd of bundles) {
+      const kg = bd.kg + b.kg;
+      const L = Math.max(bd.L, b.s0), W = Math.max(bd.W, b.s1), H = bd.H + b.s2;
+      if (kg > hardKg || L + W + H > hardLinear) continue;
+      if (rules.length_limit_cm && L > rules.length_limit_cm) continue;
+      if (rules.width_limit_cm  && W > rules.width_limit_cm)  continue;
+      if (rules.height_limit_cm && H > rules.height_limit_cm) continue;
+      bd.kg = kg; bd.L = L; bd.W = W; bd.H = H; bd.boxes.push(b);
+      placed = true;
+      break;
+    }
+    if (!placed) bundles.push({ kg: b.kg, L: b.s0, W: b.s1, H: b.s2, boxes: [b] });
+  }
+
+  const pieces = bundles.map(bd => {
+    const linear = bd.L + bd.W + bd.H;
+    return {
+      boxes: bd.boxes, l: bd.L, w: bd.W, h: bd.H, kg: bd.kg, linear,
+      overweight: bd.kg > standardWeightKg,
+      oversize: linear > standardLinearCm,
+      // only a single box that alone breaks a hard cap can end up here
+      exceedsMax: bd.kg > hardKg || linear > hardLinear,
+    };
   });
 
   // Heaviest first so each courier's load is front-loaded and easy to scan
@@ -2007,13 +2040,18 @@ function packCouriers(items, rules) {
     courier_no: ci + 1,
     bags: slice.map((p, idx) => ({
       bag_no: idx + 1,
-      items: [{ label: p.desc, dims: `${p.l}x${p.w}x${p.h}`, weight_kg: p.kg }],
-      total_weight_kg: p.kg,
-      linear_cm: p.linear,
+      merged_from: p.boxes.length,
+      items: p.boxes.map(b => ({ label: b.desc || '货物', dims: `${b.l}x${b.w}x${b.h}`, weight_kg: b.kg })),
+      dims: `${p.l}x${p.w}x${p.h}`,
+      total_weight_kg: +p.kg.toFixed(1),
+      linear_cm: +p.linear.toFixed(1),
       overweight: p.overweight,
       exceedsMax: p.exceedsMax,
       oversize: p.oversize,
-      status: p.exceedsMax ? '超出最大限重' : (p.overweight ? '超重' : (p.oversize ? '超尺寸' : '合规')),
+      status: p.exceedsMax ? '超出航司硬上限'
+        : (p.overweight && p.oversize) ? '超重+超尺寸'
+        : p.overweight ? '超重'
+        : p.oversize ? '超尺寸' : '合规',
     }))
   }));
 
@@ -2074,6 +2112,7 @@ function packCouriers(items, rules) {
     cost: {
       total_couriers: totalCouriers,
       total_bags: totalBags,
+      total_boxes: boxes.length,
       free_bags_used: freeBagsUsed,
       excess_bags: excessBags,
       recommended_concept: recommended.label,
@@ -2086,7 +2125,7 @@ function packCouriers(items, rules) {
       details,
       disclaimer: 'Estimate only — 实际费用以航司柜台核算为准',
     },
-    summary: `共需要 ${totalCouriers} 位飞人，合计 ${totalBags} 件行李`
+    summary: `共需要 ${totalCouriers} 位飞人，${boxes.length} 箱合并打包为 ${totalBags} 件行李`
       + (overweightCount ? `，${overweightCount} 件超重` : '')
       + (oversizeCount ? `，${oversizeCount} 件超尺寸` : '')
       + (weightConcept
@@ -2329,7 +2368,7 @@ function renderResults(r) {
           </div>
           ${(bag.items||[]).length > 0 ? `<div class="bag-stat">
             <div class="v">${(bag.items||[]).length}</div>
-            <div class="l">件</div>
+            <div class="l">箱</div>
           </div>` : ''}
         </div>
         ${bag.note ? `<div class="bag-note">⚠ ${bag.note}</div>` : ''}
@@ -2349,7 +2388,7 @@ function renderResults(r) {
   // Cost
   const costRows = [
     { l: '所需飞人', v: `${cost.total_couriers ?? couriers.length} 人` },
-    { l: '总行李件数', v: `${cost.total_bags} 件` },
+    { l: '总行李件数', v: `${cost.total_bags} 件${cost.total_boxes && cost.total_boxes !== cost.total_bags ? `（${cost.total_boxes} 箱合并）` : ''}` },
   ];
   // Only call it a "recommendation" when the airline offers both concepts
   // and there was actually a cheaper one to pick; with a single concept
