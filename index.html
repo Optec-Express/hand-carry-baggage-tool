@@ -2236,6 +2236,9 @@ async function calculate() {
           task: 'lookup',
           max_tokens: 4000,
           needsSearch,
+          // Shared company-wide cache key on the proxy side (Upstash Redis) —
+          // one paid lookup serves every machine for the TTL window.
+          cacheKey: `${airlineCode}|${cabin}|${origin}|${destination}`,
           messages: [{ role: 'user', content: prompt }]
         })
       });

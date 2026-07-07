@@ -18,6 +18,30 @@ const SYSTEM = 'You are a baggage-policy lookup assistant. When asked for data, 
   'output ONLY valid JSON with no markdown fences, no comments, no trailing ' +
   'commas, no single quotes. All keys and string values must use double quotes.';
 
+// Company-wide shared cache in Upstash Redis (Vercel marketplace store) via
+// its REST API — no npm dependency. Returns undefined when the store isn't
+// configured or errors, so the tool degrades to uncached lookups, never fails.
+const RULES_TTL_SECONDS = 14 * 24 * 3600; // biweekly re-check of airline policy
+
+async function kvCmd(cmd) {
+  const url = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
+  const token = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
+  if (!url || !token) return undefined;
+  try {
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(cmd),
+    });
+    const d = await r.json();
+    if (d.error) { console.warn('[KV ERROR]', d.error); return undefined; }
+    return d.result;
+  } catch (e) {
+    console.warn('[KV ERROR]', e.message);
+    return undefined;
+  }
+}
+
 function stripFences(text) {
   return text.trim()
     .replace(/^```(?:json|JSON)?\s*\n?/, '')
@@ -51,6 +75,18 @@ export default async function handler(req, res) {
   } catch (e) {
     res.status(400).json({ error: { message: '请求体解析失败: ' + e.message } });
     return;
+  }
+
+  // Shared cache: lookups carry a route key; serve the whole company from one
+  // paid query per airline/cabin/route per TTL window.
+  const cacheKey = body.task === 'lookup' && body.cacheKey ? `rules:${body.cacheKey}` : null;
+  if (cacheKey) {
+    const hit = await kvCmd(['GET', cacheKey]);
+    if (hit) {
+      console.log('[KV] hit', cacheKey);
+      res.status(200).json({ content: [{ type: 'text', text: hit }], cached: true });
+      return;
+    }
   }
 
   const model = TASK_MODELS[body.task] || TASK_MODELS.lookup;
@@ -122,7 +158,9 @@ export default async function handler(req, res) {
     }
 
     console.log('[Claude text 前200字]', text.slice(0, 200));
-    res.status(200).json({ content: [{ type: 'text', text: stripFences(text) }] });
+    const clean = stripFences(text);
+    if (cacheKey) await kvCmd(['SET', cacheKey, clean, 'EX', String(RULES_TTL_SECONDS)]);
+    res.status(200).json({ content: [{ type: 'text', text: clean }] });
   } catch (e) {
     console.error('[异常]', e);
     res.status(502).json({ error: { message: e.message } });
