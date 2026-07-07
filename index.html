@@ -1418,7 +1418,7 @@ function updateCargoSummary() {
     suffix = ' <span style="color:var(--text-3);">（部分件重量未填）</span>';
   }
   const el = document.getElementById('cargo-summary');
-  if (el) el.innerHTML = `合计：<b>${totalQty}</b> 件 · <b>${totalKg.toFixed(1)}</b> kg` + suffix;
+  if (el) el.innerHTML = `合计：<b>${totalQty}</b> 件 · <b>${totalKg.toFixed(2)}</b> kg` + suffix;
 }
 
 // ─── Paste import ─────────────────────────────────────────
