@@ -8,7 +8,7 @@
 // unrecognized falls back to the lookup model. Never trust a client-sent
 // model string.
 const TASK_MODELS = {
-  lookup: 'claude-opus-4-8',   // airline-rule lookup with web search — errors cost real money
+  lookup: 'claude-sonnet-5',   // airline-rule lookup with web search — CX fees are code-overridden, so near-Opus quality at 40% less is enough; bump back to claude-opus-4-8 if non-CX numbers drift
   parse:  'claude-haiku-4-5',  // pasted text/Excel → JSON, pure formatting
   ocr:    'claude-sonnet-5',   // screenshot table extraction — needs solid vision
 };
