@@ -1516,7 +1516,7 @@ Reply with ONLY this JSON, no explanation, no markdown:
         'anthropic-version': '2023-06-01'
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
+        task: 'parse',
         max_tokens: 4000,
         messages: [{ role: 'user', content: prompt }]
       })
@@ -1704,7 +1704,7 @@ Reply with ONLY this JSON, no explanation, no markdown, no extra text:
         'anthropic-version': '2023-06-01'
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
+        task: 'ocr',
         max_tokens: 4000,
         messages: [{
           role: 'user',
@@ -2232,7 +2232,7 @@ async function calculate() {
           'anthropic-version': '2023-06-01'
         },
         body: JSON.stringify({
-          model: 'claude-sonnet-4-6',
+          task: 'lookup',
           max_tokens: 4000,
           needsSearch,
           messages: [{ role: 'user', content: prompt }]

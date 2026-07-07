@@ -3,7 +3,15 @@
 // thin passthrough: inject the API key, pin the model, attach the web search
 // and web fetch server tools when a route lookup needs live data, and reduce
 // the response to the single text blob the frontend reads.
-const MODEL = 'claude-opus-4-8';
+// Fixed per-task models — accuracy-sensitive lookups pay for Opus, mechanical
+// extraction runs on cheap models. The frontend names the task; anything
+// unrecognized falls back to the lookup model. Never trust a client-sent
+// model string.
+const TASK_MODELS = {
+  lookup: 'claude-opus-4-8',   // airline-rule lookup with web search — errors cost real money
+  parse:  'claude-haiku-4-5',  // pasted text/Excel → JSON, pure formatting
+  ocr:    'claude-sonnet-5',   // screenshot table extraction — needs solid vision
+};
 const MAX_CONTINUATIONS = 3; // pause_turn resumes for long server-tool loops
 
 const SYSTEM = 'You are a baggage-policy lookup assistant. When asked for data, ' +
@@ -45,8 +53,9 @@ export default async function handler(req, res) {
     return;
   }
 
+  const model = TASK_MODELS[body.task] || TASK_MODELS.lookup;
   const anthropicReq = {
-    model: MODEL,
+    model,
     max_tokens: body.max_tokens || 4000,
     system: SYSTEM,
     messages: body.messages || [],
@@ -92,7 +101,7 @@ export default async function handler(req, res) {
       break;
     }
 
-    console.log('[Claude] stop_reason=' + data.stop_reason);
+    console.log(`[Claude] model=${model} stop_reason=${data.stop_reason}`);
     if (data.stop_reason === 'refusal') {
       res.status(502).json({ error: { message: 'AI 拒绝了此请求（安全策略），请修改内容后重试' } });
       return;
