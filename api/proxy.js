@@ -57,7 +57,10 @@ function toGemini(body) {
       }]
     }
   };
-  if (needsSearch) req.tools = [{ google_search: {} }];
+  // url_context lets the model fetch specific official pages named in the
+  // prompt (e.g. the CX excess-baggage fee page) instead of relying on
+  // search snippets or memory.
+  if (needsSearch) req.tools = [{ google_search: {} }, { url_context: {} }];
   return req;
 }
 
