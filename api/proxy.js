@@ -1,6 +1,8 @@
-const GEMINI_MODEL = 'gemini-2.5-flash';
+// Tried in order; on quota exhaustion / overload the next one takes over.
+// Free tier quotas are per-model, so each entry adds its own daily budget.
+const GEMINI_MODELS = ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.0-flash'];
 
-function toGemini(body) {
+function toGemini(body, model) {
   const messages = body.messages || [];
   const needsSearch = !!body.needsSearch;
 
@@ -38,10 +40,10 @@ function toGemini(body) {
   const generationConfig = {
     maxOutputTokens: body.max_tokens || 8192,
     temperature: 0.1,
-    // gemini-2.5-flash 的内部思考 token 也计入 maxOutputTokens，
-    // 不关掉会把额度吃光导致 JSON 输出被 MAX_TOKENS 截断
-    thinkingConfig: { thinkingBudget: 0 },
   };
+  // 2.5 系列的内部思考 token 也计入 maxOutputTokens，不关掉会把额度吃光
+  // 导致 JSON 输出被 MAX_TOKENS 截断；2.0 系列不认这个字段，传了会报 400
+  if (model.includes('-2.5-')) generationConfig.thinkingConfig = { thinkingBudget: 0 };
   // Grounding (Google Search) can't be combined with forced JSON mime type —
   // rely on the system instruction + stripFences() to extract JSON instead.
   if (!needsSearch) generationConfig.responseMimeType = 'application/json';
@@ -128,32 +130,48 @@ export default async function handler(req, res) {
     return;
   }
 
-  let geminiReq;
   try {
-    geminiReq = toGemini(body);
-  } catch (e) {
-    res.status(400).json({ error: { message: '请求转换失败: ' + e.message } });
-    return;
-  }
+    let lastErrMsg = 'Gemini API 错误';
+    let lastErrStatus = 502;
+    for (const model of GEMINI_MODELS) {
+      let geminiReq;
+      try {
+        geminiReq = toGemini(body, model);
+      } catch (e) {
+        res.status(400).json({ error: { message: '请求转换失败: ' + e.message } });
+        return;
+      }
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+      const geminiRes = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(geminiReq)
+      });
+      const data = await geminiRes.json();
 
-  try {
-    const geminiRes = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(geminiReq)
-    });
-    const data = await geminiRes.json();
+      if (!geminiRes.ok) {
+        const msg = data.error?.message || `HTTP ${geminiRes.status}`;
+        // 429 = quota exhausted, 503 = model overloaded — both are per-model
+        // conditions, so fall through and let the next model take the call
+        if (geminiRes.status === 429 || geminiRes.status === 503) {
+          console.warn(`[Gemini] ${model} unavailable (${geminiRes.status}), trying next model`);
+          lastErrMsg = msg;
+          lastErrStatus = geminiRes.status === 429 ? 429 : 502;
+          continue;
+        }
+        res.status(502).json({ error: { message: msg } });
+        return;
+      }
 
-    if (!geminiRes.ok) {
-      const msg = data.error?.message || `HTTP ${geminiRes.status}`;
-      res.status(502).json({ error: { message: msg } });
+      console.log(`[Gemini] served by ${model}`);
+      const { body: outBody, status } = fromGemini(data);
+      res.status(status).json(outBody);
       return;
     }
 
-    const { body: outBody, status } = fromGemini(data);
-    res.status(status).json(outBody);
+    // Every model in the chain refused
+    res.status(lastErrStatus).json({ error: { message: lastErrMsg } });
   } catch (e) {
     console.error('[异常]', e);
     res.status(502).json({ error: { message: e.message } });
