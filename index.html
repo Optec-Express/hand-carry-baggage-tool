@@ -1837,24 +1837,50 @@ Cathay Pacific's OFFICIAL zone definitions (from the CX baggage page — treat a
 - 第四区: 西南太平洋: 澳大利亚、斐济、新西兰；欧洲: 奥地利、比利时、捷克、丹麦、芬兰、法国、德国、匈牙利、爱尔兰、意大利、荷兰、挪威、葡萄牙、西班牙、瑞典、瑞士、英国；非洲: 南非
 - 第五区: 北美洲: 加拿大、墨西哥、美国
 - 第六区: 中南美洲: 巴西、智利、秘鲁
-
-Cathay Pacific excess-baggage fee (USD per extra piece, piece concept), by zone pair:
-             往返香港  往返第一区  往返第二/三区  往返第四区  往返第五/六区
-往返香港        -        100         130           150          200
-往返第一区     100       120         150           170          210
-往返第二/三区  130       150         170           200          230
-往返第四区     150       170         200           220          250
-往返第五/六区  200       210         230           250          260
-
-Cathay Pacific overweight-baggage fee (USD per bag over the standard weight but
-under 32kg/70lb), by zone pair:
-             往返香港  往返第一区  往返第二/三区  往返第四区  往返第五/六区
-往返香港        -        60          100           130          150
-往返第一区      60       80          100           130          150
-往返第二/三区  100       100         100           150          150
-往返第四区     130       130         150           150          150
-往返第五/六区  150       150         150           150          150
 `.trim();
+
+// CX official fee matrices, USD/piece — indexed [originZone][destZone] with
+// zones 0=香港 1=第一区 2=第二/三区 3=第四区 4=第五/六区. Looked up in code
+// (cxApplyZoneFees) so the AI never reads a table cell itself; it only names
+// the two zones. null = HK↔HK, no such route.
+const CX_ZONE_INDEX = {
+  '香港': 0, '往返香港': 0, 'HKG': 0,
+  '第一区': 1,
+  '第二区': 2, '第三区': 2, '第二/三区': 2,
+  '第四区': 3,
+  '第五区': 4, '第六区': 4, '第五/六区': 4,
+};
+const CX_EXCESS_FEE = [
+  [null, 100, 130, 150, 200],
+  [100,  120, 150, 170, 210],
+  [130,  150, 170, 200, 230],
+  [150,  170, 200, 220, 250],
+  [200,  210, 230, 250, 260],
+];
+const CX_OVERWEIGHT_FEE = [
+  [null, 60,  100, 130, 150],
+  [60,   80,  100, 130, 150],
+  [100,  100, 100, 150, 150],
+  [130,  130, 150, 150, 150],
+  [150,  150, 150, 150, 150],
+];
+
+function cxApplyZoneFees(rules) {
+  const o = CX_ZONE_INDEX[(rules.origin_zone || '').trim()];
+  const d = CX_ZONE_INDEX[(rules.dest_zone || '').trim()];
+  if (o === undefined || d === undefined) return;
+  const zonePair = `${rules.origin_zone}↔${rules.dest_zone}`;
+  const excess = CX_EXCESS_FEE[o][d];
+  const over   = CX_OVERWEIGHT_FEE[o][d];
+  if (excess != null) {
+    rules.excess_bag_fee_usd = excess;
+    rules.excess_bag_fee_text = `USD ${excess}/件（${zonePair}，官方表）`;
+  }
+  if (over != null) {
+    rules.overweight_fee_usd = over;
+    rules.overweight_fee_text = `USD ${over}/件（${zonePair}，官方表）`;
+  }
+}
 
 function buildLookupPrompt(airlineCode, airlineName, cabin, origin, destination) {
   const hasRoute = origin && destination;
@@ -1864,7 +1890,7 @@ function buildLookupPrompt(airlineCode, airlineName, cabin, origin, destination)
 
   let zoneNote;
   if (hasRoute && airlineCode === 'CX') {
-    zoneNote = `\nBelow are Cathay Pacific's ACTUAL published zone definitions and fee tables. Determine which country each of ${origin} and ${destination} is in, look up that country's zone in the definitions below (do NOT search or guess zone membership — the list below is authoritative), then READ the matching cell from the fee table — do NOT invent a number. State both resolved zones in notes, e.g. "HKG=往返香港，NRT(日本)=第一区".\n\n${CX_ZONE_FEE_TABLE}\n\n(oversize_fee_usd isn't in this table — estimate that one as usual.)`;
+    zoneNote = `\nBelow are Cathay Pacific's ACTUAL published zone definitions. Determine which country each of ${origin} and ${destination} is in, then resolve each to a zone using ONLY the list below (do NOT search or guess zone membership — the list is authoritative).\n\n${CX_ZONE_FEE_TABLE}\n\nIn addition to the JSON keys listed later, you MUST include two extra keys: "origin_zone" and "dest_zone", each EXACTLY one of "香港"/"第一区"/"第二区"/"第三区"/"第四区"/"第五区"/"第六区". The zone-pair excess and overweight fees are then looked up from the official table by our code — whatever you put in excess_bag_fee_usd / overweight_fee_usd will be OVERRIDDEN, so don't agonize over them. State both zones in notes too, e.g. "HKG=香港，NRT(日本)=第一区".`;
   } else if (hasRoute) {
     zoneNote = `\nIMPORTANT: ${airlineCode}'s excess/overweight/oversize baggage fees are usually tiered by a fare-zone system based on the origin-destination country/region pair. You have live Google Search — use it to find ${airlineCode}'s actual official baggage fee page and zone definitions for this SPECIFIC route (${origin} → ${destination}), rather than guessing from memory. Report what you found and searched for in notes.`;
   } else {
@@ -2128,6 +2154,9 @@ async function calculate() {
     rules.airline_code = airlineCode;
     rules.airline_name_cn = airlineName;
     rules.cabin_class = cabin;
+    // CX: the AI only names the two zones; the actual zone-pair fees come from
+    // the hardcoded official matrices so a misread table cell can't slip in.
+    if (airlineCode === 'CX') cxApplyZoneFees(rules);
     // A manual override at the top takes priority over the AI's lookup for
     // what the ticket includes — but never for weight_limit_kg, which is the
     // airline's fixed "will not accept beyond this" policy fact, not a fare choice.
