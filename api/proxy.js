@@ -38,6 +38,9 @@ function toGemini(body) {
   const generationConfig = {
     maxOutputTokens: body.max_tokens || 8192,
     temperature: 0.1,
+    // gemini-2.5-flash 的内部思考 token 也计入 maxOutputTokens，
+    // 不关掉会把额度吃光导致 JSON 输出被 MAX_TOKENS 截断
+    thinkingConfig: { thinkingBudget: 0 },
   };
   // Grounding (Google Search) can't be combined with forced JSON mime type —
   // rely on the system instruction + stripFences() to extract JSON instead.

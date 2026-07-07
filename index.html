@@ -1517,7 +1517,7 @@ Reply with ONLY this JSON, no explanation, no markdown:
       },
       body: JSON.stringify({
         model: 'claude-sonnet-4-6',
-        max_tokens: 1000,
+        max_tokens: 4000,
         messages: [{ role: 'user', content: prompt }]
       })
     });
@@ -1705,7 +1705,7 @@ Reply with ONLY this JSON, no explanation, no markdown, no extra text:
       },
       body: JSON.stringify({
         model: 'claude-sonnet-4-6',
-        max_tokens: 1000,
+        max_tokens: 4000,
         messages: [{
           role: 'user',
           content: [
@@ -2077,7 +2077,7 @@ async function calculate() {
         },
         body: JSON.stringify({
           model: 'claude-sonnet-4-6',
-          max_tokens: 1000,
+          max_tokens: 4000,
           needsSearch,
           messages: [{ role: 'user', content: prompt }]
         })
