@@ -1827,6 +1827,8 @@ function importOcrItems() {
 // the route into a zone and read a cell, instead of recalling dollar figures
 // from memory (which it can't do reliably; see git history for why).
 const CX_ZONE_FEE_TABLE = `
+Cathay Pacific uses the PIECE concept on ALL routes — weight_concept_available MUST be false.
+
 Cathay Pacific's OFFICIAL zone definitions (from the CX baggage page — treat as ground truth):
 - 往返香港: Hong Kong (HKG) itself
 - 第一区: 中国内地、澳门、中国台湾；中亚/东亚: 日本(Japan)、哈萨克斯坦、蒙古、俄罗斯(亚洲地区内)、韩国；东南亚: 柬埔寨、印度尼西亚、老挝、马来西亚、缅甸、菲律宾、新加坡、泰国、越南
@@ -1984,11 +1986,14 @@ function packCouriers(items, rules) {
 
   // Weight concept: excess billed per kg beyond each courier's total weight allowance
   let weightConcept = null;
-  if (rules.weight_concept_available && rules.weight_concept_allowance_kg) {
+  // Require a real positive per-kg fee: a null/0 fee would make the whole
+  // excess weight "free" (USD 0) and wrongly win the recommendation below.
+  if (rules.weight_concept_available && rules.weight_concept_allowance_kg
+      && rules.weight_concept_excess_fee_usd_per_kg > 0) {
     const totalWeight = pieces.reduce((s, p) => s + p.kg, 0);
     const totalAllowance = totalCouriers * rules.weight_concept_allowance_kg;
     const excessKg = Math.max(0, totalWeight - totalAllowance);
-    const excessCostByWeight = excessKg * (rules.weight_concept_excess_fee_usd_per_kg || 0);
+    const excessCostByWeight = excessKg * rules.weight_concept_excess_fee_usd_per_kg;
     weightConcept = {
       label: '计重制',
       excess_kg: +excessKg.toFixed(1),
