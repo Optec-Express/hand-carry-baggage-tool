@@ -2224,7 +2224,7 @@ async function calculate() {
     const needsSearch = !!(origin && destination);
     console.log('[4] lookup prompt built, length:', prompt.length, 'needsSearch:', needsSearch);
     const ctrl = new AbortController();
-    const timeoutMs = needsSearch ? 180000 : 60000; // web-search lookups run multiple rounds and can take minutes
+    const timeoutMs = needsSearch ? 280000 : 60000; // web-search lookups run multiple rounds and can take minutes; must stay under the function's 300s cap
     const timer = setTimeout(() => { console.log('[TIMEOUT] abort fired'); ctrl.abort(); }, timeoutMs);
     let res;
     try {

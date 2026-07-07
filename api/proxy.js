@@ -96,6 +96,10 @@ export default async function handler(req, res) {
     system: SYSTEM,
     messages: body.messages || [],
   };
+  // Lookups run a multi-round web-tool loop; medium effort cuts the thinking
+  // overhead per round (Sonnet 5 at medium ≈ Sonnet 4.6 at high) so the whole
+  // chain finishes well inside the timeout. Haiku doesn't accept effort.
+  if (body.task === 'lookup') anthropicReq.output_config = { effort: 'medium' };
   if (body.needsSearch) {
     // Cost controls: searches bill $10/1K, and every fetched page re-enters
     // the context on each server-tool iteration — cap both hard.
