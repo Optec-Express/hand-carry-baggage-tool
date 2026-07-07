@@ -698,6 +698,43 @@ body {
 .cost-row.total .cl { font-weight: 700; color: var(--text); font-size: 14.5px; }
 .cost-row.total .cv { font-size: 18px; color: var(--accent); }
 
+.cost-body {
+  display: grid;
+  grid-template-columns: 1.1fr 1fr;
+  gap: 28px;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .cost-body { grid-template-columns: 1fr; }
+}
+.strategy-hd {
+  font-weight: 600;
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+.strategy-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.strategy-table th, .strategy-table td {
+  padding: 8px 10px;
+  text-align: right;
+  border-bottom: 1px solid #e8ecf4;
+  white-space: nowrap;
+}
+.strategy-table th:first-child, .strategy-table td:first-child {
+  text-align: left;
+  white-space: normal;
+}
+.strategy-table th { color: #8a94a6; font-weight: 500; }
+.strategy-table tr.picked td { background: #eef4ff; font-weight: 600; }
+.strategy-note {
+  font-size: 12px;
+  color: #8a94a6;
+  margin-top: 10px;
+  line-height: 1.7;
+}
 .cost-detail {
   margin-top: 12px;
   padding: 10px 12px;
@@ -1139,11 +1176,14 @@ body {
     <div class="card">
       <div class="section-hd">费用估算</div>
       <div class="cost-body">
-        <div id="cost-rows"></div>
-        <div id="cost-compare" style="display:none;"></div>
-        <div id="cost-detail" class="cost-detail" style="display:none;"></div>
-        <div id="cost-disclaimer" class="disclaimer"></div>
+        <div class="cost-left">
+          <div id="cost-rows"></div>
+          <div id="cost-compare" style="display:none;"></div>
+          <div id="cost-detail" class="cost-detail" style="display:none;"></div>
+        </div>
+        <div class="cost-right" id="cost-strategies" style="display:none;"></div>
       </div>
+      <div id="cost-disclaimer" class="disclaimer"></div>
     </div>
 
     <div class="card">
@@ -1890,12 +1930,18 @@ const CX_OVERWEIGHT_FEE = [
 ];
 
 function cxApplyZoneFees(rules, originIata, destIata) {
+  // CX oversize (158–203cm) is a flat USD 200/piece on ALL routes — an
+  // official published constant, independent of zones. Pin it first so it
+  // holds even when no route is given and zones can't be resolved.
+  rules.oversize_fee_usd = 200;
+  rules.oversize_fee_text = 'USD 200/件（全航线统一，官方定值）';
+
   const oZone = CX_AIRPORT_ZONE[(originIata || '').trim().toUpperCase()] || (rules.origin_zone || '').trim();
   const dZone = CX_AIRPORT_ZONE[(destIata || '').trim().toUpperCase()] || (rules.dest_zone || '').trim();
   const o = CX_ZONE_INDEX[oZone];
   const d = CX_ZONE_INDEX[dZone];
   if (o === undefined || d === undefined) {
-    console.warn('[CX] zone unresolved, keeping AI fees:', originIata, '->', oZone, ';', destIata, '->', dZone);
+    console.warn('[CX] zone unresolved, keeping AI excess/overweight fees:', originIata, '->', oZone, ';', destIata, '->', dZone);
     return;
   }
   const zonePair = `${oZone}↔${dZone}`;
@@ -1909,11 +1955,6 @@ function cxApplyZoneFees(rules, originIata, destIata) {
     rules.overweight_fee_usd = over;
     rules.overweight_fee_text = `USD ${over}/件（${zonePair}，官方表）`;
   }
-  // CX oversize (158–203cm) is a flat USD 200/piece on all routes — an
-  // official published constant. The AI misread this repeatedly (150, 沿途
-  // guesses), so it's pinned like the zone fees.
-  rules.oversize_fee_usd = 200;
-  rules.oversize_fee_text = 'USD 200/件（全航线统一，官方定值）';
 }
 
 function buildLookupPrompt(airlineCode, airlineName, cabin, origin, destination) {
@@ -1993,12 +2034,17 @@ function packCouriers(items, rules) {
   const runs = strategies.map(st => packOnce(boxes, rules, st));
   runs.push(packHybrid(boxes, rules));
   runs.push(packCarve(boxes, rules));
-  const cmpLine = '打包策略对比 — ' + runs.map(r =>
-    `${r.strategy_label}：${r.cost.total_couriers} 人 / ${r.cost.total_bags} 件 / USD ${r.cost.total_usd.toLocaleString()}`).join('；');
 
   const best = runs.slice().sort((a, b) =>
     a.cost.total_couriers - b.cost.total_couriers || a.cost.total_usd - b.cost.total_usd)[0];
-  best.cost.details.push(cmpLine);
+  // Structured comparison for the side-by-side table in renderResults
+  best.cost.strategy_comparison = runs.map(r => ({
+    label: r.strategy_label,
+    couriers: r.cost.total_couriers,
+    bags: r.cost.total_bags,
+    usd: r.cost.total_usd,
+    chosen: r === best,
+  }));
   best.summary = `【打包策略：${best.strategy_label}】` + best.summary;
   return best;
 }
@@ -2611,6 +2657,29 @@ function renderResults(r) {
     detailEl.style.display = '';
   } else {
     detailEl.style.display = 'none';
+  }
+
+  // Strategy comparison table in the right column: every packing plan that
+  // was evaluated, with the auto-selected one highlighted.
+  const stratEl = document.getElementById('cost-strategies');
+  if (cost.strategy_comparison && cost.strategy_comparison.length) {
+    stratEl.innerHTML = `
+      <div class="strategy-hd">打包策略对比（自动选择：人数最少，同人数取行李费最低）</div>
+      <table class="strategy-table">
+        <tr><th>打包策略</th><th>飞人</th><th>行李</th><th>行李费</th></tr>
+        ${cost.strategy_comparison.map(s => `
+        <tr class="${s.chosen ? 'picked' : ''}">
+          <td>${s.chosen ? '✓ ' : ''}${s.label}</td>
+          <td>${s.couriers} 人</td>
+          <td>${s.bags} 件</td>
+          <td>USD ${s.usd.toLocaleString()}</td>
+        </tr>`).join('')}
+      </table>
+      <div class="strategy-note">规律：派的人越少，超额行李费越高——省下的是机票和人工。工具未计入机票/人工成本：若某方案行李费低很多，请自行核算多派人是否总账更划算；想强制少件多人，可调小「每人最多可托运」后重新计算。</div>`;
+    stratEl.style.display = '';
+  } else {
+    stratEl.innerHTML = '';
+    stratEl.style.display = 'none';
   }
 
   document.getElementById('cost-disclaimer').textContent = `⚠ ${cost.disclaimer || '费用仅供参考，以航司实际收取为准'}`;
