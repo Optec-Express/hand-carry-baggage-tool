@@ -700,17 +700,18 @@ body {
 
 .cost-body {
   display: grid;
-  grid-template-columns: 1.1fr 1fr;
-  gap: 28px;
+  grid-template-columns: minmax(260px, 0.9fr) minmax(460px, 1.1fr);
+  gap: 32px;
   align-items: start;
 }
-@media (max-width: 900px) {
+@media (max-width: 1100px) {
   .cost-body { grid-template-columns: 1fr; }
 }
+.cost-right { overflow-x: auto; }
 .strategy-hd {
   font-weight: 600;
   font-size: 13px;
-  margin-bottom: 8px;
+  margin-bottom: 10px;
 }
 .strategy-table {
   width: 100%;
@@ -718,17 +719,24 @@ body {
   font-size: 13px;
 }
 .strategy-table th, .strategy-table td {
-  padding: 8px 10px;
+  padding: 9px 12px;
   text-align: right;
   border-bottom: 1px solid #e8ecf4;
   white-space: nowrap;
+  line-height: 1.4;
 }
 .strategy-table th:first-child, .strategy-table td:first-child {
   text-align: left;
-  white-space: normal;
 }
 .strategy-table th { color: #8a94a6; font-weight: 500; }
-.strategy-table tr.picked td { background: #eef4ff; font-weight: 600; }
+.strategy-table tr.picked td {
+  background: #eef4ff;
+  font-weight: 600;
+}
+.strategy-table tr.picked td:first-child {
+  border-left: 3px solid #2b5cff;
+  color: #2b5cff;
+}
 .strategy-note {
   font-size: 12px;
   color: #8a94a6;
