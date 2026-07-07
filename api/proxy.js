@@ -42,9 +42,11 @@ function toGemini(body, model) {
     maxOutputTokens: body.max_tokens || 8192,
     temperature: 0.1,
   };
-  // 2.5 系列的内部思考 token 也计入 maxOutputTokens，不关掉会把额度吃光
-  // 导致 JSON 输出被 MAX_TOKENS 截断；2.0 系列不认这个字段，传了会报 400
+  // 思考 token 也计入 maxOutputTokens，不压下来会把额度吃光导致 JSON 输出
+  // 被 MAX_TOKENS 截断。各代参数不同：2.5 用 thinkingBudget:0 完全关闭；
+  // 3.x 不认 budget，只能 thinkingLevel:'low'；2.0 没有思考，什么都不传。
   if (model.includes('-2.5-')) generationConfig.thinkingConfig = { thinkingBudget: 0 };
+  else if (/-3(\.\d+)?-/.test(model)) generationConfig.thinkingConfig = { thinkingLevel: 'low' };
   // Grounding (Google Search) can't be combined with forced JSON mime type —
   // rely on the system instruction + stripFences() to extract JSON instead.
   if (!needsSearch) generationConfig.responseMimeType = 'application/json';
@@ -83,20 +85,25 @@ function fromGemini(data) {
 
   let text = '';
   try {
-    const candidate = data.candidates[0];
-    const reason = candidate.finishReason || '';
+    const candidate = data.candidates?.[0];
+    const reason = candidate?.finishReason || '';
     console.log('[Gemini] finishReason=' + reason);
+    // Newer models split the answer across multiple parts (each may carry a
+    // thoughtSignature); join every text part instead of reading parts[0].
+    const raw = (candidate?.content?.parts || [])
+      .map(p => p.text || '')
+      .join('');
     if (reason === 'SAFETY') {
       text = '[内容被安全过滤器拦截，请修改描述后重试]';
-    } else if (reason === 'MAX_TOKENS') {
-      const raw = candidate.content.parts[0].text;
-      console.warn(`[WARN] 响应被截断（MAX_TOKENS），已收到 ${raw.length} 字符`);
-      text = stripFences(raw);
+    } else if (!raw) {
+      console.error('[Gemini] empty candidate, finishReason=' + reason, JSON.stringify(data).slice(0, 500));
+      return { body: { error: { message: `Gemini 返回空内容（finishReason=${reason || '无'}），请重试` } }, status: 502 };
     } else {
-      text = stripFences(candidate.content.parts[0].text);
+      if (reason === 'MAX_TOKENS') console.warn(`[WARN] 响应被截断（MAX_TOKENS），已收到 ${raw.length} 字符`);
+      text = stripFences(raw);
     }
   } catch (e) {
-    text = '响应解析失败: ' + e.message;
+    return { body: { error: { message: '响应解析失败: ' + e.message } }, status: 502 };
   }
 
   console.log('[Gemini text 前200字]', text.slice(0, 200));
@@ -165,8 +172,16 @@ export default async function handler(req, res) {
         return;
       }
 
-      console.log(`[Gemini] served by ${model}`);
       const { body: outBody, status } = fromGemini(data);
+      // An OK HTTP status can still carry an unusable payload (empty
+      // candidate, parse failure) — that's also worth a shot on the next model
+      if (status !== 200) {
+        console.warn(`[Gemini] ${model} returned unusable payload, trying next model`);
+        lastErrMsg = outBody.error?.message || lastErrMsg;
+        lastErrStatus = status;
+        continue;
+      }
+      console.log(`[Gemini] served by ${model}`);
       res.status(status).json(outBody);
       return;
     }
