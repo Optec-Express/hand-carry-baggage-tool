@@ -179,7 +179,10 @@ export default async function handler(req, res) {
 
     console.log('[Claude text 前200字]', text.slice(0, 200));
     const clean = stripFences(text);
-    if (cacheKey) await kvCmd(['SET', cacheKey, clean, 'EX', String(RULES_TTL_SECONDS)]);
+    if (cacheKey) {
+      const saved = await kvCmd(['SET', cacheKey, clean, 'EX', String(RULES_TTL_SECONDS)]);
+      console.log(saved === 'OK' ? `[KV] saved ${cacheKey}` : `[KV] save FAILED ${cacheKey}`);
+    }
     res.status(200).json({ content: [{ type: 'text', text: clean }] });
   } catch (e) {
     console.error('[异常]', e);
