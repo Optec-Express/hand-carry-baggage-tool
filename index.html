@@ -1991,6 +1991,7 @@ function packCouriers(items, rules) {
     { label: '合并至航司硬上限', kgCap: hardKg,                     linearCap: hardLinear },
   ];
   const runs = strategies.map(st => packOnce(boxes, rules, st));
+  runs.push(packHybrid(boxes, rules));
   const cmpLine = '打包策略对比 — ' + runs.map(r =>
     `${r.strategy_label}：${r.cost.total_couriers} 人 / ${r.cost.total_bags} 件 / USD ${r.cost.total_usd.toLocaleString()}`).join('；');
 
@@ -2001,30 +2002,20 @@ function packCouriers(items, rules) {
   return best;
 }
 
-// One full pack under a given merge strategy: merge (unless kgCap is 0),
-// deal pieces to couriers, price the result.
-function packOnce(boxes, rules, strategy) {
-  const standardWeightKg = rules.standard_weight_kg || rules.weight_limit_kg;
-  const freeBagsPerPax = rules.free_bags_per_pax || 1;
-  const maxBagsPerPax  = rules.max_bags_per_pax || 10;
-  const maxTotalWeightKg = rules.max_total_weight_kg || 0;   // 0 = no cap; practical ceiling on one courier's total load
-  const hardKg     = rules.weight_limit_kg || Infinity;
-  const hardLinear = rules.linear_limit_cm || Infinity;
-  const standardLinearCm = rules.standard_linear_cm || 158;  // free-tier size; beyond it the oversize FEE applies (hard cap is hardLinear)
-
-  // Greedy first-fit merge: similar footprints first so max() wastes little,
-  // each box goes into the first bundle it fits without breaking the
-  // strategy's caps (nor the airline's per-dimension caps); otherwise it
-  // opens a new bundle. kgCap 0 = no merging at all.
+// Greedy first-fit merge under the given caps: similar footprints first so
+// max() wastes little; each box goes into the first bundle it fits without
+// breaking the caps (nor the airline's per-dimension caps); otherwise it
+// opens a new bundle. kgCap 0 = no merging at all.
+function mergeBoxes(boxes, rules, kgCap, linearCap) {
   const sorted = boxes.slice().sort((a, b) => b.s0 - a.s0 || b.s1 - a.s1 || b.kg - a.kg);
   const bundles = [];
   for (const b of sorted) {
     let placed = false;
-    if (strategy.kgCap > 0) {
+    if (kgCap > 0) {
       for (const bd of bundles) {
         const kg = bd.kg + b.kg;
         const L = Math.max(bd.L, b.s0), W = Math.max(bd.W, b.s1), H = bd.H + b.s2;
-        if (kg > strategy.kgCap || L + W + H > strategy.linearCap) continue;
+        if (kg > kgCap || L + W + H > linearCap) continue;
         if (rules.length_limit_cm && L > rules.length_limit_cm) continue;
         if (rules.width_limit_cm  && W > rules.width_limit_cm)  continue;
         if (rules.height_limit_cm && H > rules.height_limit_cm) continue;
@@ -2035,8 +2026,15 @@ function packOnce(boxes, rules, strategy) {
     }
     if (!placed) bundles.push({ kg: b.kg, L: b.s0, W: b.s1, H: b.s2, boxes: [b] });
   }
+  return bundles;
+}
 
-  const pieces = bundles.map(bd => {
+function bundlesToPieces(bundles, rules) {
+  const hardKg     = rules.weight_limit_kg || Infinity;
+  const hardLinear = rules.linear_limit_cm || Infinity;
+  const standardWeightKg = rules.standard_weight_kg || rules.weight_limit_kg;
+  const standardLinearCm = rules.standard_linear_cm || 158;  // free-tier size; beyond it the oversize FEE applies
+  return bundles.map(bd => {
     const linear = bd.L + bd.W + bd.H;
     return {
       boxes: bd.boxes, l: bd.L, w: bd.W, h: bd.H, kg: bd.kg, linear,
@@ -2046,6 +2044,52 @@ function packOnce(boxes, rules, strategy) {
       exceedsMax: bd.kg > hardKg || linear > hardLinear,
     };
   });
+}
+
+// One full pack under a uniform merge strategy.
+function packOnce(boxes, rules, strategy) {
+  const bundles = mergeBoxes(boxes, rules, strategy.kgCap, strategy.linearCap);
+  return assignAndPrice(bundlesToPieces(bundles, rules), rules, strategy.label, boxes.length);
+}
+
+// User strategy: fill the free allowance with fully-compliant pieces first
+// (≤ standard kg AND ≤ standard linear — they fly completely free), then
+// concentrate everything left into as few hard-cap pieces as possible (each
+// pays the excess fee anyway, so make every paid piece carry the maximum).
+// Courier count and free-slot count depend on each other — iterate to a
+// fixed point.
+function packHybrid(boxes, rules) {
+  const hardKg     = rules.weight_limit_kg || Infinity;
+  const hardLinear = rules.linear_limit_cm || Infinity;
+  const stdKg      = Math.min(rules.standard_weight_kg || hardKg, hardKg);
+  const stdLinear  = Math.min(rules.standard_linear_cm || 158, hardLinear);
+  const freePerPax = rules.free_bags_per_pax || 1;
+  const label = '免费小件+集中大件';
+
+  // Free-tier merge; heaviest bundles claim the free slots so the free
+  // allowance carries as much weight as possible.
+  const stdBundles = mergeBoxes(boxes, rules, stdKg, stdLinear).sort((a, b) => b.kg - a.kg);
+  let result = assignAndPrice(bundlesToPieces(stdBundles, rules), rules, label, boxes.length);
+  for (let i = 0; i < 4; i++) {
+    const freeSlots = result.cost.total_couriers * freePerPax;
+    const freeBundles = stdBundles.slice(0, freeSlots);
+    const restBoxes = stdBundles.slice(freeSlots).flatMap(bd => bd.boxes);
+    const bigBundles = mergeBoxes(restBoxes, rules, hardKg, hardLinear);
+    const next = assignAndPrice(
+      bundlesToPieces(freeBundles.concat(bigBundles), rules), rules, label, boxes.length);
+    if (next.cost.total_couriers === result.cost.total_couriers) return next;
+    result = next;
+  }
+  return result;
+}
+
+// Deal pieces to couriers and price the result.
+function assignAndPrice(pieces, rules, strategyLabel, totalBoxes) {
+  const freeBagsPerPax = rules.free_bags_per_pax || 1;
+  const maxBagsPerPax  = rules.max_bags_per_pax || 10;
+  const maxTotalWeightKg = rules.max_total_weight_kg || 0;   // 0 = no cap; practical ceiling on one courier's total load
+  const hardKg     = rules.weight_limit_kg || Infinity;
+  const hardLinear = rules.linear_limit_cm || Infinity;
 
   // Heaviest first so each courier's load is front-loaded and easy to scan
   pieces.sort((a, b) => b.kg - a.kg);
@@ -2144,12 +2188,12 @@ function packOnce(boxes, rules, strategy) {
   if (exceedsMaxCount) details.unshift(`⚠ ${exceedsMaxCount} 件超过航司硬上限（${hardKg}kg / ${hardLinear}cm），柜台可能拒收，需拆分或走货运，费用估算仅按超重费粗略计`);
 
   return {
-    strategy_label: strategy.label,
+    strategy_label: strategyLabel,
     couriers,
     cost: {
       total_couriers: totalCouriers,
       total_bags: totalBags,
-      total_boxes: boxes.length,
+      total_boxes: totalBoxes,
       free_bags_used: freeBagsUsed,
       excess_bags: excessBags,
       recommended_concept: recommended.label,
@@ -2162,7 +2206,7 @@ function packOnce(boxes, rules, strategy) {
       details,
       disclaimer: 'Estimate only — 实际费用以航司柜台核算为准',
     },
-    summary: `共需要 ${totalCouriers} 位飞人，${boxes.length} 箱${totalBags < boxes.length ? `合并打包为 ${totalBags} 件` : `共 ${totalBags} 件`}行李`
+    summary: `共需要 ${totalCouriers} 位飞人，${totalBoxes} 箱${totalBags < totalBoxes ? `合并打包为 ${totalBags} 件` : `共 ${totalBags} 件`}行李`
       + (overweightCount ? `，${overweightCount} 件超重` : '')
       + (oversizeCount ? `，${oversizeCount} 件超尺寸` : '')
       + (weightConcept
