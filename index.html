@@ -709,16 +709,10 @@ body {
 }
 .cost-right {
   overflow-x: auto;
-  border-left: 1px solid var(--border);
-  padding-left: 32px;
-}
-@media (max-width: 1100px) {
-  .cost-right {
-    border-left: none;
-    padding-left: 0;
-    border-top: 1px solid var(--border);
-    padding-top: 16px;
-  }
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 14px 16px;
 }
 .strategy-hd { font-weight: 700; font-size: 13.5px; }
 .strategy-sub { font-size: 12px; color: var(--text-3); margin: 2px 0 6px; }
@@ -732,14 +726,14 @@ body {
   font-weight: 400;
   font-size: 12px;
   padding: 8px 0 8px 12px;
-  border-bottom: 1px solid #F1F5F9;
+  border-bottom: 1px solid var(--border);
   text-align: right;
   white-space: nowrap;
 }
 .strategy-table td {
   padding: 9px 0 9px 12px;
   text-align: right;
-  border-bottom: 1px solid #F1F5F9;
+  border-bottom: 1px solid #E2E9F3;
   white-space: nowrap;
   line-height: 1.55;
 }
@@ -751,7 +745,7 @@ body {
 .strategy-table td:first-child { color: var(--text-2); }
 .strategy-table td.num, .strategy-table td.fee { font-family: var(--mono); font-weight: 600; color: var(--text); }
 .strategy-table td.fee.low { color: var(--ok); }
-.strategy-table tr.picked td { background: var(--accent-l); }
+.strategy-table tr.picked td { background: var(--surface); }
 .strategy-table tr.picked td:first-child {
   color: var(--accent);
   font-weight: 700;
