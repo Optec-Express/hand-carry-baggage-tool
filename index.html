@@ -2200,6 +2200,21 @@ async function calculate() {
   document.getElementById('calc-btn').disabled = true;
 
   try {
+    // Airline policy for a given airline/cabin/route is near-static — cache
+    // each successful lookup for 7 days so repeat calculations don't burn
+    // the (small) free daily Gemini quota.
+    const cacheKey = `rules-cache:${airlineCode}|${cabin}|${origin}|${destination}`;
+    const RULES_CACHE_TTL_MS = 7 * 24 * 3600 * 1000;
+    let rules = null;
+    try {
+      const c = JSON.parse(localStorage.getItem(cacheKey));
+      if (c && c.rules && Date.now() - c.ts < RULES_CACHE_TTL_MS) {
+        rules = c.rules;
+        console.log('[cache] rules served from localStorage, age(h):', ((Date.now() - c.ts) / 3600e3).toFixed(1));
+      }
+    } catch (_) {}
+
+    if (!rules) {
     const prompt = buildLookupPrompt(airlineCode, airlineName, cabin, origin, destination);
     const needsSearch = !!(origin && destination);
     console.log('[4] lookup prompt built, length:', prompt.length, 'needsSearch:', needsSearch);
@@ -2244,7 +2259,6 @@ async function calculate() {
     const text = data.content?.[0]?.text || '';
     console.log('[9] text length:', text.length, 'preview:', text.slice(0,100));
     if (!text) throw new Error('AI 返回空响应，请重试');
-    let rules;
     try {
       rules = extractJSON(text);
       console.log('[10] JSON parsed OK, keys:', Object.keys(rules));
@@ -2252,6 +2266,9 @@ async function calculate() {
       console.error('[PARSE FAIL] raw text:\n', text);
       throw new Error(parseErr.message + '\n\n原始响应前500字：\n' + text.slice(0, 500));
     }
+    try { localStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), rules })); } catch (_) {}
+    }
+
     rules.airline_code = airlineCode;
     rules.airline_name_cn = airlineName;
     rules.cabin_class = cabin;
