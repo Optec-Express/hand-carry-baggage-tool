@@ -1051,10 +1051,7 @@ body {
 
   <!-- Cargo Input -->
   <div class="card">
-    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
-      <div class="card-title" style="margin-bottom:0;">货物清单</div>
-      <button class="sample-btn" onclick="loadSample()">载入示例数据</button>
-    </div>
+    <div class="card-title">货物清单</div>
 
     <div class="tabs">
       <button class="tab active" id="tab-manual" onclick="switchTab('manual')">手动输入</button>
@@ -1069,10 +1066,9 @@ body {
           <thead>
             <tr>
               <th style="width:32px;">#</th>
-              <th style="min-width:160px;">货物描述</th>
-              <th style="min-width:190px;">尺寸 长×宽×高 (cm)</th>
-              <th style="min-width:90px;">单件重量 (kg)</th>
-              <th style="min-width:60px;">件数</th>
+              <th style="min-width:220px;">尺寸 长×宽×高 (cm)</th>
+              <th style="min-width:100px;">单件重量 (kg)</th>
+              <th style="min-width:70px;">件数</th>
               <th style="width:36px;"></th>
             </tr>
           </thead>
@@ -1365,7 +1361,6 @@ function addRow(d = {}) {
   tr.id = 'r' + id;
   tr.innerHTML = `
     <td class="rn" id="rn${id}">${rows.length}</td>
-    <td><input type="text" id="d${id}" placeholder="货物描述（可选）" value="${esc(d.desc||'')}" style="min-width:150px;"></td>
     <td>
       <div class="dim-cell">
         <input type="number" id="l${id}" min="1" placeholder="长" value="${d.l||''}" style="min-width:52px;">
@@ -1643,25 +1638,6 @@ Reply with ONLY this JSON, no explanation, no markdown:
     btn.disabled = false;
     btn.textContent = btnOldText;
   }
-}
-
-// ─── Sample data ──────────────────────────────────────────
-function loadSample() {
-  // Clear existing rows
-  rows.forEach(id => document.getElementById('r'+id)?.remove());
-  rows = [];
-  importedTotalWeightKg = null;
-  const samples = [
-    { desc: '精密仪器', l:60, w:40, h:35, kg:8.5, q:2 },
-    { desc: '电子元器件', l:50, w:30, h:25, kg:3.2, q:5 },
-    { desc: '工业零件', l:80, w:50, h:40, kg:12.0, q:1 },
-    { desc: '样品包装', l:45, w:35, h:20, kg:4.8, q:3 },
-  ];
-  samples.forEach(s => addRow(s));
-  switchTab('manual');
-  const noteEl = document.getElementById('cargo-import-note');
-  if (noteEl) noteEl.style.display = 'none';
-  toast('示例数据已载入');
 }
 
 // ─── OCR ──────────────────────────────────────────────────
