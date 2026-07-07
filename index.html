@@ -2264,12 +2264,12 @@ async function calculate() {
     // airline's fixed "will not accept beyond this" policy fact, not a fare choice.
     if (allowance.free !== 'auto') rules.free_bags_per_pax = parseInt(allowance.free);
     if (allowance.weight !== 'auto') rules.standard_weight_kg = parseFloat(allowance.weight);
-    // Practical caps the user is expected to verify themselves. Bags/pax
-    // starts unset (0); one courier realistically hauls ~100kg of cargo, so
-    // that starts as the default. Both editable via 重新计算, and
-    // renderResults() echoes back whatever the user set.
+    // Practical caps the user is expected to verify themselves — both start
+    // unset (0 = no cap) on the FIRST lookup. Once the user fills one in and
+    // hits 重新计算, the plan is redone under that cap and renderResults()
+    // echoes the value back.
     rules.max_bags_per_pax = 0;
-    rules.max_total_weight_kg = 100;
+    rules.max_total_weight_kg = 0;
 
     const packed = packCouriers(items, rules);
     if (weightEstimated) {
