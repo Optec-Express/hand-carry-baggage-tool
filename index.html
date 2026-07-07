@@ -2089,8 +2089,9 @@ function packCouriers(items, rules) {
     summary: `共需要 ${totalCouriers} 位飞人，合计 ${totalBags} 件行李`
       + (overweightCount ? `，${overweightCount} 件超重` : '')
       + (oversizeCount ? `，${oversizeCount} 件超尺寸` : '')
-      + `。按${recommended.label}收费更划算，预计总费用 USD ${recommended.total_usd.toLocaleString()}`
-      + (weightConcept ? `（计件制 USD ${pieceConcept.total_usd.toLocaleString()} / 计重制 USD ${weightConcept.total_usd.toLocaleString()}）` : '')
+      + (weightConcept
+          ? `。该航线计件/计重均可，按${recommended.label}更划算，预计总费用 USD ${recommended.total_usd.toLocaleString()}（计件制 USD ${pieceConcept.total_usd.toLocaleString()} / 计重制 USD ${weightConcept.total_usd.toLocaleString()}）`
+          : `。该航线为${recommended.label}，预计总费用 USD ${recommended.total_usd.toLocaleString()}`)
       + '。',
   };
 }
@@ -2350,7 +2351,14 @@ function renderResults(r) {
     { l: '所需飞人', v: `${cost.total_couriers ?? couriers.length} 人` },
     { l: '总行李件数', v: `${cost.total_bags} 件` },
   ];
-  if (cost.recommended_concept) costRows.push({ l: '推荐计费方式', v: cost.recommended_concept });
+  // Only call it a "recommendation" when the airline offers both concepts
+  // and there was actually a cheaper one to pick; with a single concept
+  // it's just the billing method, nothing was compared.
+  if (cost.recommended_concept) {
+    costRows.push(cost.weight_concept
+      ? { l: '推荐计费方式（两种均可，取便宜）', v: cost.recommended_concept }
+      : { l: '计费方式（该航线仅此一种）', v: cost.recommended_concept });
+  }
   if (cost.overweight_cost_usd > 0) costRows.push({ l: '超重费', v: `USD ${cost.overweight_cost_usd.toLocaleString()}` });
   if (cost.oversize_cost_usd > 0) costRows.push({ l: '超尺寸费', v: `USD ${cost.oversize_cost_usd.toLocaleString()}` });
 
