@@ -1992,6 +1992,7 @@ function packCouriers(items, rules) {
   ];
   const runs = strategies.map(st => packOnce(boxes, rules, st));
   runs.push(packHybrid(boxes, rules));
+  runs.push(packCarve(boxes, rules));
   const cmpLine = '打包策略对比 — ' + runs.map(r =>
     `${r.strategy_label}：${r.cost.total_couriers} 人 / ${r.cost.total_bags} 件 / USD ${r.cost.total_usd.toLocaleString()}`).join('；');
 
@@ -2002,31 +2003,76 @@ function packCouriers(items, rules) {
   return best;
 }
 
-// Greedy first-fit merge under the given caps: similar footprints first so
-// max() wastes little; each box goes into the first bundle it fits without
-// breaking the caps (nor the airline's per-dimension caps); otherwise it
-// opens a new bundle. kgCap 0 = no merging at all.
+// Can box b join bundle bd under the caps (incl. airline per-dimension caps)?
+// Boxes of ANY size/weight may mix — the only constraints are the caps.
+function fitsBundle(bd, b, kgCap, linearCap, rules) {
+  const kg = bd.kg + b.kg;
+  const L = Math.max(bd.L, b.s0), W = Math.max(bd.W, b.s1), H = bd.H + b.s2;
+  if (kg > kgCap || L + W + H > linearCap) return null;
+  if (rules.length_limit_cm && L > rules.length_limit_cm) return null;
+  if (rules.width_limit_cm  && W > rules.width_limit_cm)  return null;
+  if (rules.height_limit_cm && H > rules.height_limit_cm) return null;
+  return { kg, L, W, H };
+}
+
+function addToBundle(bd, b, dims) {
+  bd.kg = dims.kg; bd.L = dims.L; bd.W = dims.W; bd.H = dims.H;
+  bd.boxes.push(b);
+}
+
+// Greedy first-fit merge under the given caps. Tries two orderings —
+// footprint-first (similar bases stack with little wasted footprint) and
+// weight-first (packs kg tighter, freely mixing sizes) — and keeps whichever
+// produces fewer pieces. kgCap 0 = no merging at all.
 function mergeBoxes(boxes, rules, kgCap, linearCap) {
-  const sorted = boxes.slice().sort((a, b) => b.s0 - a.s0 || b.s1 - a.s1 || b.kg - a.kg);
-  const bundles = [];
-  for (const b of sorted) {
-    let placed = false;
-    if (kgCap > 0) {
-      for (const bd of bundles) {
-        const kg = bd.kg + b.kg;
-        const L = Math.max(bd.L, b.s0), W = Math.max(bd.W, b.s1), H = bd.H + b.s2;
-        if (kg > kgCap || L + W + H > linearCap) continue;
-        if (rules.length_limit_cm && L > rules.length_limit_cm) continue;
-        if (rules.width_limit_cm  && W > rules.width_limit_cm)  continue;
-        if (rules.height_limit_cm && H > rules.height_limit_cm) continue;
-        bd.kg = kg; bd.L = L; bd.W = W; bd.H = H; bd.boxes.push(b);
-        placed = true;
-        break;
-      }
-    }
-    if (!placed) bundles.push({ kg: b.kg, L: b.s0, W: b.s1, H: b.s2, boxes: [b] });
+  if (kgCap <= 0) {
+    return boxes.map(b => ({ kg: b.kg, L: b.s0, W: b.s1, H: b.s2, boxes: [b] }));
   }
-  return bundles;
+  const orders = [
+    (a, b) => b.s0 - a.s0 || b.s1 - a.s1 || b.kg - a.kg,
+    (a, b) => b.kg - a.kg || b.s0 - a.s0,
+  ];
+  let best = null;
+  for (const cmp of orders) {
+    const bundles = [];
+    for (const b of boxes.slice().sort(cmp)) {
+      let placed = false;
+      for (const bd of bundles) {
+        const dims = fitsBundle(bd, b, kgCap, linearCap, rules);
+        if (dims) { addToBundle(bd, b, dims); placed = true; break; }
+      }
+      if (!placed) bundles.push({ kg: b.kg, L: b.s0, W: b.s1, H: b.s2, boxes: [b] });
+    }
+    if (!best || bundles.length < best.length) best = bundles;
+  }
+  return best;
+}
+
+// Build up to binCount FREE-tier pieces (≤ standard kg AND ≤ standard linear
+// — they fly completely free), packing as much weight into them as possible;
+// everything that doesn't fit is returned for hard-cap merging.
+function buildFreePieces(boxes, binCount, rules) {
+  const kgCap = Math.min(rules.standard_weight_kg || Infinity, rules.weight_limit_kg || Infinity);
+  const linearCap = Math.min(rules.standard_linear_cm || 158, rules.linear_limit_cm || Infinity);
+  const bins = [];
+  const rest = [];
+  for (const b of boxes.slice().sort((a, b2) => b2.kg - a.kg)) {
+    let placed = false;
+    for (const bd of bins) {
+      const dims = fitsBundle(bd, b, kgCap, linearCap, rules);
+      if (dims) { addToBundle(bd, b, dims); placed = true; break; }
+    }
+    if (!placed && bins.length < binCount
+        && b.kg <= kgCap && b.s0 + b.s1 + b.s2 <= linearCap
+        && !(rules.length_limit_cm && b.s0 > rules.length_limit_cm)
+        && !(rules.width_limit_cm  && b.s1 > rules.width_limit_cm)
+        && !(rules.height_limit_cm && b.s2 > rules.height_limit_cm)) {
+      bins.push({ kg: b.kg, L: b.s0, W: b.s1, H: b.s2, boxes: [b] });
+      placed = true;
+    }
+    if (!placed) rest.push(b);
+  }
+  return { freeBundles: bins, restBoxes: rest };
 }
 
 function bundlesToPieces(bundles, rules) {
@@ -2052,12 +2098,12 @@ function packOnce(boxes, rules, strategy) {
   return assignAndPrice(bundlesToPieces(bundles, rules), rules, strategy.label, boxes.length);
 }
 
-// User strategy: fill the free allowance with fully-compliant pieces first
-// (≤ standard kg AND ≤ standard linear — they fly completely free), then
-// concentrate everything left into as few hard-cap pieces as possible (each
+// User strategy A: fill the free allowance with weight-maximized compliant
+// pieces (they fly free), concentrate the rest into hard-cap pieces (each
 // pays the excess fee anyway, so make every paid piece carry the maximum).
 // Courier count and free-slot count depend on each other — iterate to a
-// fixed point.
+// fixed point. May use more couriers than the pure big-piece plan when that
+// trades tickets for lower baggage fees; the comparison pool decides.
 function packHybrid(boxes, rules) {
   const hardKg     = rules.weight_limit_kg || Infinity;
   const hardLinear = rules.linear_limit_cm || Infinity;
@@ -2066,14 +2112,10 @@ function packHybrid(boxes, rules) {
   const freePerPax = rules.free_bags_per_pax || 1;
   const label = '免费小件+集中大件';
 
-  // Free-tier merge; heaviest bundles claim the free slots so the free
-  // allowance carries as much weight as possible.
-  const stdBundles = mergeBoxes(boxes, rules, stdKg, stdLinear).sort((a, b) => b.kg - a.kg);
-  let result = assignAndPrice(bundlesToPieces(stdBundles, rules), rules, label, boxes.length);
+  let result = packOnce(boxes, rules, { label, kgCap: stdKg, linearCap: stdLinear });
   for (let i = 0; i < 4; i++) {
     const freeSlots = result.cost.total_couriers * freePerPax;
-    const freeBundles = stdBundles.slice(0, freeSlots);
-    const restBoxes = stdBundles.slice(freeSlots).flatMap(bd => bd.boxes);
+    const { freeBundles, restBoxes } = buildFreePieces(boxes, freeSlots, rules);
     const bigBundles = mergeBoxes(restBoxes, rules, hardKg, hardLinear);
     const next = assignAndPrice(
       bundlesToPieces(freeBundles.concat(bigBundles), rules), rules, label, boxes.length);
@@ -2081,6 +2123,32 @@ function packHybrid(boxes, rules) {
     result = next;
   }
   return result;
+}
+
+// User strategy B: keep the MINIMUM headcount (set by the pure big-piece
+// plan), then carve the free allowance out of it — those couriers' free
+// slots get weight-maximized compliant pieces, the remainder re-merges into
+// hard-cap pieces. Tries every free-piece count and keeps the cheapest plan
+// that still fits the same number of couriers.
+function packCarve(boxes, rules) {
+  const hardKg     = rules.weight_limit_kg || Infinity;
+  const hardLinear = rules.linear_limit_cm || Infinity;
+  const freePerPax = rules.free_bags_per_pax || 1;
+  const label = '集中大件+回填免费小件';
+
+  const base = assignAndPrice(
+    bundlesToPieces(mergeBoxes(boxes, rules, hardKg, hardLinear), rules), rules, label, boxes.length);
+  const N = base.cost.total_couriers;
+  let best = base;
+  for (let f = N * freePerPax; f >= 1; f--) {
+    const { freeBundles, restBoxes } = buildFreePieces(boxes, f, rules);
+    if (!freeBundles.length) break;
+    const bigBundles = mergeBoxes(restBoxes, rules, hardKg, hardLinear);
+    const res = assignAndPrice(
+      bundlesToPieces(freeBundles.concat(bigBundles), rules), rules, label, boxes.length);
+    if (res.cost.total_couriers <= N && res.cost.total_usd < best.cost.total_usd) best = res;
+  }
+  return best;
 }
 
 // Deal pieces to couriers and price the result.
