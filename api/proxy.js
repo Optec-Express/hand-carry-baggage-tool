@@ -1,113 +1,20 @@
-// Tried in order; on quota exhaustion / overload the next one takes over.
-// Free tier quotas are per-model, so each entry adds its own daily budget.
-// All verified to support url_context + google_search on this key.
-const GEMINI_MODELS = ['gemini-3.5-flash', 'gemini-3.1-flash-lite', 'gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.0-flash'];
+// Proxy to the Anthropic Messages API. The frontend already speaks the
+// Anthropic wire format (messages / image blocks / max_tokens), so this is a
+// thin passthrough: inject the API key, pin the model, attach the web search
+// and web fetch server tools when a route lookup needs live data, and reduce
+// the response to the single text blob the frontend reads.
+const MODEL = 'claude-opus-4-8';
+const MAX_CONTINUATIONS = 3; // pause_turn resumes for long server-tool loops
 
-function toGemini(body, model) {
-  const messages = body.messages || [];
-  const needsSearch = !!body.needsSearch;
-
-  const contents = messages.map(msg => {
-    const role = msg.role === 'user' ? 'user' : 'model';
-    const raw = msg.content;
-    let parts;
-
-    if (typeof raw === 'string') {
-      parts = [{ text: raw }];
-    } else if (Array.isArray(raw)) {
-      parts = [];
-      for (const item of raw) {
-        if (item.type === 'text') {
-          parts.push({ text: item.text });
-        } else if (item.type === 'image') {
-          const src = item.source || {};
-          if (src.type === 'base64') {
-            parts.push({
-              inlineData: {
-                mimeType: src.media_type || 'image/jpeg',
-                data: src.data || ''
-              }
-            });
-          }
-        }
-      }
-    } else {
-      parts = [{ text: String(raw) }];
-    }
-
-    return { role, parts };
-  });
-
-  const generationConfig = {
-    maxOutputTokens: body.max_tokens || 8192,
-    temperature: 0.1,
-  };
-  // 思考 token 也计入 maxOutputTokens，不压下来会把额度吃光导致 JSON 输出
-  // 被 MAX_TOKENS 截断。各代参数不同：2.5 用 thinkingBudget:0 完全关闭；
-  // 3.x 不认 budget，只能 thinkingLevel:'low'；2.0 没有思考，什么都不传。
-  if (model.includes('-2.5-')) generationConfig.thinkingConfig = { thinkingBudget: 0 };
-  else if (/-3(\.\d+)?-/.test(model)) generationConfig.thinkingConfig = { thinkingLevel: 'low' };
-  // Grounding (Google Search) can't be combined with forced JSON mime type —
-  // rely on the system instruction + stripFences() to extract JSON instead.
-  if (!needsSearch) generationConfig.responseMimeType = 'application/json';
-
-  const req = {
-    contents,
-    generationConfig,
-    systemInstruction: {
-      parts: [{
-        text: 'Output ONLY valid JSON with no markdown fences, no comments, ' +
-              'no trailing commas, no single quotes. ' +
-              'All keys and string values must use double quotes.'
-      }]
-    }
-  };
-  // url_context lets the model fetch specific official pages named in the
-  // prompt (e.g. the CX excess-baggage fee page) instead of relying on
-  // search snippets or memory.
-  if (needsSearch) req.tools = [{ google_search: {} }, { url_context: {} }];
-  return req;
-}
+const SYSTEM = 'You are a baggage-policy lookup assistant. When asked for data, ' +
+  'output ONLY valid JSON with no markdown fences, no comments, no trailing ' +
+  'commas, no single quotes. All keys and string values must use double quotes.';
 
 function stripFences(text) {
   return text.trim()
     .replace(/^```(?:json|JSON)?\s*\n?/, '')
     .replace(/\n?```\s*$/, '')
     .trim();
-}
-
-function fromGemini(data) {
-  if (data.error) {
-    const msg = data.error.message || 'Gemini API 错误';
-    console.error('[Gemini ERROR]', data.error.code, msg);
-    return { body: { error: { message: msg } }, status: 502 };
-  }
-
-  let text = '';
-  try {
-    const candidate = data.candidates?.[0];
-    const reason = candidate?.finishReason || '';
-    console.log('[Gemini] finishReason=' + reason);
-    // Newer models split the answer across multiple parts (each may carry a
-    // thoughtSignature); join every text part instead of reading parts[0].
-    const raw = (candidate?.content?.parts || [])
-      .map(p => p.text || '')
-      .join('');
-    if (reason === 'SAFETY') {
-      text = '[内容被安全过滤器拦截，请修改描述后重试]';
-    } else if (!raw) {
-      console.error('[Gemini] empty candidate, finishReason=' + reason, JSON.stringify(data).slice(0, 500));
-      return { body: { error: { message: `Gemini 返回空内容（finishReason=${reason || '无'}），请重试` } }, status: 502 };
-    } else {
-      if (reason === 'MAX_TOKENS') console.warn(`[WARN] 响应被截断（MAX_TOKENS），已收到 ${raw.length} 字符`);
-      text = stripFences(raw);
-    }
-  } catch (e) {
-    return { body: { error: { message: '响应解析失败: ' + e.message } }, status: 502 };
-  }
-
-  console.log('[Gemini text 前200字]', text.slice(0, 200));
-  return { body: { content: [{ type: 'text', text }] }, status: 200 };
 }
 
 export default async function handler(req, res) {
@@ -124,9 +31,9 @@ export default async function handler(req, res) {
     return;
   }
 
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
-    res.status(500).json({ error: { message: 'API Key 未配置，请在 Vercel 项目的 Environment Variables 里设置 GEMINI_API_KEY' } });
+    res.status(500).json({ error: { message: 'API Key 未配置，请在 Vercel 项目的 Environment Variables 里设置 ANTHROPIC_API_KEY' } });
     return;
   }
 
@@ -138,56 +45,73 @@ export default async function handler(req, res) {
     return;
   }
 
+  const anthropicReq = {
+    model: MODEL,
+    max_tokens: body.max_tokens || 4000,
+    system: SYSTEM,
+    messages: body.messages || [],
+  };
+  if (body.needsSearch) {
+    anthropicReq.tools = [
+      { type: 'web_search_20260209', name: 'web_search', max_uses: 5 },
+      { type: 'web_fetch_20260209', name: 'web_fetch', max_uses: 5 },
+    ];
+  }
+
   try {
-    let lastErrMsg = 'Gemini API 错误';
-    let lastErrStatus = 502;
-    for (const model of GEMINI_MODELS) {
-      let geminiReq;
-      try {
-        geminiReq = toGemini(body, model);
-      } catch (e) {
-        res.status(400).json({ error: { message: '请求转换失败: ' + e.message } });
-        return;
-      }
-
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-      const geminiRes = await fetch(url, {
+    let data;
+    // Server tools run in a server-side loop that can pause (stop_reason
+    // "pause_turn"); resending the conversation resumes it where it left off.
+    for (let attempt = 0; ; attempt++) {
+      const apiRes = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(geminiReq)
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify(anthropicReq),
       });
-      const data = await geminiRes.json();
+      data = await apiRes.json();
 
-      if (!geminiRes.ok) {
-        const msg = data.error?.message || `HTTP ${geminiRes.status}`;
-        // 429 = quota exhausted, 503 = model overloaded — both are per-model
-        // conditions, so fall through and let the next model take the call
-        if (geminiRes.status === 429 || geminiRes.status === 503) {
-          console.warn(`[Gemini] ${model} unavailable (${geminiRes.status}), trying next model`);
-          lastErrMsg = msg;
-          lastErrStatus = geminiRes.status === 429 ? 429 : 502;
-          continue;
-        }
-        res.status(502).json({ error: { message: msg } });
+      if (!apiRes.ok) {
+        const msg = data.error?.message || `HTTP ${apiRes.status}`;
+        console.error('[Claude ERROR]', apiRes.status, msg);
+        res.status(apiRes.status).json({ error: { message: msg } });
         return;
       }
 
-      const { body: outBody, status } = fromGemini(data);
-      // An OK HTTP status can still carry an unusable payload (empty
-      // candidate, parse failure) — that's also worth a shot on the next model
-      if (status !== 200) {
-        console.warn(`[Gemini] ${model} returned unusable payload, trying next model`);
-        lastErrMsg = outBody.error?.message || lastErrMsg;
-        lastErrStatus = status;
+      if (data.stop_reason === 'pause_turn' && attempt < MAX_CONTINUATIONS) {
+        console.log('[Claude] pause_turn, resuming server-tool loop, attempt', attempt + 1);
+        anthropicReq.messages = [
+          ...anthropicReq.messages,
+          { role: 'assistant', content: data.content },
+        ];
         continue;
       }
-      console.log(`[Gemini] served by ${model}`);
-      res.status(status).json(outBody);
+      break;
+    }
+
+    console.log('[Claude] stop_reason=' + data.stop_reason);
+    if (data.stop_reason === 'refusal') {
+      res.status(502).json({ error: { message: 'AI 拒绝了此请求（安全策略），请修改内容后重试' } });
       return;
     }
 
-    // Every model in the chain refused
-    res.status(lastErrStatus).json({ error: { message: lastErrMsg } });
+    // With server tools the content array interleaves server_tool_use /
+    // tool_result blocks with text — join every text block, never read [0].
+    const text = (data.content || [])
+      .filter(b => b.type === 'text')
+      .map(b => b.text)
+      .join('');
+    if (!text) {
+      console.error('[Claude] empty text, stop_reason=' + data.stop_reason, JSON.stringify(data).slice(0, 500));
+      res.status(502).json({ error: { message: `AI 返回空内容（stop_reason=${data.stop_reason || '无'}），请重试` } });
+      return;
+    }
+
+    console.log('[Claude text 前200字]', text.slice(0, 200));
+    res.status(200).json({ content: [{ type: 'text', text: stripFences(text) }] });
   } catch (e) {
     console.error('[异常]', e);
     res.status(502).json({ error: { message: e.message } });
