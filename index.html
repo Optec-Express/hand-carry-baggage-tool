@@ -1955,22 +1955,18 @@ Reply ONLY valid JSON, no markdown, no explanation:
 {"airline_code":"${airlineCode}","airline_name_cn":"string","cabin_class":"${cabin}","weight_limit_kg":32,"standard_weight_kg":23,"linear_limit_cm":203,"standard_linear_cm":158,"length_limit_cm":null,"width_limit_cm":null,"height_limit_cm":null,"free_bags_per_pax":1,"max_bags_per_pax":10,"excess_bag_fee_usd":200,"overweight_fee_usd":100,"oversize_fee_usd":150,"excess_bag_fee_text":"USD 200/bag","overweight_fee_text":"USD 100/bag","oversize_fee_text":"USD 150/bag","weight_concept_available":false,"weight_concept_allowance_kg":null,"weight_concept_excess_fee_usd_per_kg":null,"weight_concept_text":"","notes":""}`;
 }
 
-// Deterministic bin-packing in two stages. Stage 1 consolidates boxes into as
-// few checked pieces as possible: courier headcount (ticket + day rate) costs
-// far more than baggage fees, so a merged piece is allowed to go overweight
-// (> standard kg) and oversize (> standard linear) as long as it stays within
-// the airline's hard acceptance ceilings (weight_limit_kg / linear_limit_cm /
-// per-dimension caps). Stage 2 deals the pieces out to couriers, capped at
-// max_bags_per_pax each. Boxes themselves keep their fixed dims/weight.
+// Deterministic bin-packing, evaluated under three merge strategies. Courier
+// headcount is the dominant cost (round-trip ticket + day rate), so the run
+// needing the fewest people wins; among equals, the lowest baggage fees win:
+//   逐箱不合并       — every box travels as its own piece
+//   合并至免费限额内 — merge only while a piece stays inside the FREE tier
+//                      (standard kg / standard linear): merging costs nothing
+//   合并至航司硬上限 — merge up to the acceptance ceilings, paying
+//                      overweight/oversize fees to shrink the piece count
+// A per-courier load cap (max_total_weight_kg, e.g. 100kg/人) often makes
+// headcount weight-bound — then aggressive merging only adds fees and wastes
+// per-person capacity; this comparison catches exactly that flip.
 function packCouriers(items, rules) {
-  const maxWeightKg    = rules.weight_limit_kg;                        // airline's hard "will not accept" ceiling — fixed policy fact
-  const standardWeightKg = rules.standard_weight_kg || maxWeightKg;    // ticket-included per-bag weight before an overweight fee applies
-  const freeBagsPerPax = rules.free_bags_per_pax || 1;
-  const maxBagsPerPax  = rules.max_bags_per_pax || 10;
-  const maxTotalWeightKg = rules.max_total_weight_kg || 0;             // 0 = no cap; user-set practical ceiling on one courier's total load
-  const linearLimit    = rules.linear_limit_cm;
-  const standardLinearCm = rules.standard_linear_cm || 158;            // free-tier size; beyond it the oversize FEE applies (hard cap is linearLimit)
-
   // Explode rows into individual boxes; sort each box's dims so the two
   // largest form the footprint and bundles stack along the smallest axis.
   const boxes = [];
@@ -1981,25 +1977,58 @@ function packCouriers(items, rules) {
     }
   });
 
-  // Stage 1 — greedy first-fit: similar footprints first so max() wastes
-  // little, each box goes into the first bundle it fits without breaking a
-  // hard cap; otherwise it opens a new bundle.
-  boxes.sort((a, b) => b.s0 - a.s0 || b.s1 - a.s1 || b.kg - a.kg);
-  const hardKg     = maxWeightKg || Infinity;
-  const hardLinear = linearLimit || Infinity;
+  const hardKg     = rules.weight_limit_kg || Infinity;
+  const hardLinear = rules.linear_limit_cm || Infinity;
+  const stdKg      = rules.standard_weight_kg || hardKg;
+  const stdLinear  = rules.standard_linear_cm || 158;
+
+  const strategies = [
+    { label: '逐箱不合并',      kgCap: 0,                          linearCap: 0 },
+    { label: '合并至免费限额内', kgCap: Math.min(stdKg, hardKg),    linearCap: Math.min(stdLinear, hardLinear) },
+    { label: '合并至航司硬上限', kgCap: hardKg,                     linearCap: hardLinear },
+  ];
+  const runs = strategies.map(st => packOnce(boxes, rules, st));
+  const cmpLine = '打包策略对比 — ' + runs.map(r =>
+    `${r.strategy_label}：${r.cost.total_couriers} 人 / ${r.cost.total_bags} 件 / USD ${r.cost.total_usd.toLocaleString()}`).join('；');
+
+  const best = runs.slice().sort((a, b) =>
+    a.cost.total_couriers - b.cost.total_couriers || a.cost.total_usd - b.cost.total_usd)[0];
+  best.cost.details.push(cmpLine);
+  best.summary = `【打包策略：${best.strategy_label}】` + best.summary;
+  return best;
+}
+
+// One full pack under a given merge strategy: merge (unless kgCap is 0),
+// deal pieces to couriers, price the result.
+function packOnce(boxes, rules, strategy) {
+  const standardWeightKg = rules.standard_weight_kg || rules.weight_limit_kg;
+  const freeBagsPerPax = rules.free_bags_per_pax || 1;
+  const maxBagsPerPax  = rules.max_bags_per_pax || 10;
+  const maxTotalWeightKg = rules.max_total_weight_kg || 0;   // 0 = no cap; practical ceiling on one courier's total load
+  const hardKg     = rules.weight_limit_kg || Infinity;
+  const hardLinear = rules.linear_limit_cm || Infinity;
+  const standardLinearCm = rules.standard_linear_cm || 158;  // free-tier size; beyond it the oversize FEE applies (hard cap is hardLinear)
+
+  // Greedy first-fit merge: similar footprints first so max() wastes little,
+  // each box goes into the first bundle it fits without breaking the
+  // strategy's caps (nor the airline's per-dimension caps); otherwise it
+  // opens a new bundle. kgCap 0 = no merging at all.
+  const sorted = boxes.slice().sort((a, b) => b.s0 - a.s0 || b.s1 - a.s1 || b.kg - a.kg);
   const bundles = [];
-  for (const b of boxes) {
+  for (const b of sorted) {
     let placed = false;
-    for (const bd of bundles) {
-      const kg = bd.kg + b.kg;
-      const L = Math.max(bd.L, b.s0), W = Math.max(bd.W, b.s1), H = bd.H + b.s2;
-      if (kg > hardKg || L + W + H > hardLinear) continue;
-      if (rules.length_limit_cm && L > rules.length_limit_cm) continue;
-      if (rules.width_limit_cm  && W > rules.width_limit_cm)  continue;
-      if (rules.height_limit_cm && H > rules.height_limit_cm) continue;
-      bd.kg = kg; bd.L = L; bd.W = W; bd.H = H; bd.boxes.push(b);
-      placed = true;
-      break;
+    if (strategy.kgCap > 0) {
+      for (const bd of bundles) {
+        const kg = bd.kg + b.kg;
+        const L = Math.max(bd.L, b.s0), W = Math.max(bd.W, b.s1), H = bd.H + b.s2;
+        if (kg > strategy.kgCap || L + W + H > strategy.linearCap) continue;
+        if (rules.length_limit_cm && L > rules.length_limit_cm) continue;
+        if (rules.width_limit_cm  && W > rules.width_limit_cm)  continue;
+        if (rules.height_limit_cm && H > rules.height_limit_cm) continue;
+        bd.kg = kg; bd.L = L; bd.W = W; bd.H = H; bd.boxes.push(b);
+        placed = true;
+        break;
+      }
     }
     if (!placed) bundles.push({ kg: b.kg, L: b.s0, W: b.s1, H: b.s2, boxes: [b] });
   }
@@ -2105,9 +2134,10 @@ function packCouriers(items, rules) {
   const details = [recommended.detail];
   if (overweightCount) details.push(`${overweightCount} 件超重，按 ${rules.overweight_fee_text || rules.overweight_fee_usd + ' USD/件'} 收取`);
   if (oversizeCount) details.push(`${oversizeCount} 件超尺寸，按 ${rules.oversize_fee_text || rules.oversize_fee_usd + ' USD/件'} 收取`);
-  if (exceedsMaxCount) details.unshift(`⚠ ${exceedsMaxCount} 件超过航司最大限重 ${maxWeightKg}kg，柜台可能拒收，需拆分或走货运，费用估算仅按超重费粗略计`);
+  if (exceedsMaxCount) details.unshift(`⚠ ${exceedsMaxCount} 件超过航司硬上限（${hardKg}kg / ${hardLinear}cm），柜台可能拒收，需拆分或走货运，费用估算仅按超重费粗略计`);
 
   return {
+    strategy_label: strategy.label,
     couriers,
     cost: {
       total_couriers: totalCouriers,
@@ -2125,7 +2155,7 @@ function packCouriers(items, rules) {
       details,
       disclaimer: 'Estimate only — 实际费用以航司柜台核算为准',
     },
-    summary: `共需要 ${totalCouriers} 位飞人，${boxes.length} 箱合并打包为 ${totalBags} 件行李`
+    summary: `共需要 ${totalCouriers} 位飞人，${boxes.length} 箱${totalBags < boxes.length ? `合并打包为 ${totalBags} 件` : `共 ${totalBags} 件`}行李`
       + (overweightCount ? `，${overweightCount} 件超重` : '')
       + (oversizeCount ? `，${oversizeCount} 件超尺寸` : '')
       + (weightConcept
@@ -2234,11 +2264,12 @@ async function calculate() {
     // airline's fixed "will not accept beyond this" policy fact, not a fare choice.
     if (allowance.free !== 'auto') rules.free_bags_per_pax = parseInt(allowance.free);
     if (allowance.weight !== 'auto') rules.standard_weight_kg = parseFloat(allowance.weight);
-    // These are practical/policy caps the user is expected to verify themselves —
-    // always start at 0 (not set) on the FIRST lookup. Once the user edits them
-    // and hits 重新计算, renderResults() will echo back their real value instead.
+    // Practical caps the user is expected to verify themselves. Bags/pax
+    // starts unset (0); one courier realistically hauls ~100kg of cargo, so
+    // that starts as the default. Both editable via 重新计算, and
+    // renderResults() echoes back whatever the user set.
     rules.max_bags_per_pax = 0;
-    rules.max_total_weight_kg = 0;
+    rules.max_total_weight_kg = 100;
 
     const packed = packCouriers(items, rules);
     if (weightEstimated) {
