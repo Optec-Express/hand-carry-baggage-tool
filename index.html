@@ -1827,6 +1827,15 @@ function importOcrItems() {
 // the route into a zone and read a cell, instead of recalling dollar figures
 // from memory (which it can't do reliably; see git history for why).
 const CX_ZONE_FEE_TABLE = `
+Cathay Pacific's OFFICIAL zone definitions (from the CX baggage page — treat as ground truth):
+- 往返香港: Hong Kong (HKG) itself
+- 第一区: 中国内地、澳门、中国台湾；中亚/东亚: 日本(Japan)、哈萨克斯坦、蒙古、俄罗斯(亚洲地区内)、韩国；东南亚: 柬埔寨、印度尼西亚、老挝、马来西亚、缅甸、菲律宾、新加坡、泰国、越南
+- 第二区: 南亚: 孟加拉国、印度、马尔代夫、尼泊尔、斯里兰卡
+- 第三区: 中东: 巴林、以色列、卡塔尔、沙特阿拉伯、阿联酋
+- 第四区: 西南太平洋: 澳大利亚、斐济、新西兰；欧洲: 奥地利、比利时、捷克、丹麦、芬兰、法国、德国、匈牙利、爱尔兰、意大利、荷兰、挪威、葡萄牙、西班牙、瑞典、瑞士、英国；非洲: 南非
+- 第五区: 北美洲: 加拿大、墨西哥、美国
+- 第六区: 中南美洲: 巴西、智利、秘鲁
+
 Cathay Pacific excess-baggage fee (USD per extra piece, piece concept), by zone pair:
              往返香港  往返第一区  往返第二/三区  往返第四区  往返第五/六区
 往返香港        -        100         130           150          200
@@ -1853,7 +1862,7 @@ function buildLookupPrompt(airlineCode, airlineName, cabin, origin, destination)
 
   let zoneNote;
   if (hasRoute && airlineCode === 'CX') {
-    zoneNote = `\nHere is Cathay Pacific's ACTUAL published fee table by zone pair. You also have live Google Search — use it to verify which zone (往返香港/第一区/第二/三区/第四区/第五/六区) each of ${origin} and ${destination} falls into (search e.g. "Cathay Pacific baggage zone 第一区 第二区 国家" or check the official CX baggage page) — do NOT guess this from memory alone. Once you've determined the two zones, READ the matching cell from the table below for the fee — do NOT invent a number. Report which two zones you found and what you searched in notes.\n\n${CX_ZONE_FEE_TABLE}\n\n(oversize_fee_usd isn't in this table — estimate that one as usual.)`;
+    zoneNote = `\nBelow are Cathay Pacific's ACTUAL published zone definitions and fee tables. Determine which country each of ${origin} and ${destination} is in, look up that country's zone in the definitions below (do NOT search or guess zone membership — the list below is authoritative), then READ the matching cell from the fee table — do NOT invent a number. State both resolved zones in notes, e.g. "HKG=往返香港，NRT(日本)=第一区".\n\n${CX_ZONE_FEE_TABLE}\n\n(oversize_fee_usd isn't in this table — estimate that one as usual.)`;
   } else if (hasRoute) {
     zoneNote = `\nIMPORTANT: ${airlineCode}'s excess/overweight/oversize baggage fees are usually tiered by a fare-zone system based on the origin-destination country/region pair. You have live Google Search — use it to find ${airlineCode}'s actual official baggage fee page and zone definitions for this SPECIFIC route (${origin} → ${destination}), rather than guessing from memory. Report what you found and searched for in notes.`;
   } else {
