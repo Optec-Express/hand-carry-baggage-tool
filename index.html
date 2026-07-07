@@ -1827,8 +1827,6 @@ function importOcrItems() {
 // the route into a zone and read a cell, instead of recalling dollar figures
 // from memory (which it can't do reliably; see git history for why).
 const CX_ZONE_FEE_TABLE = `
-Cathay Pacific uses the PIECE concept on ALL routes — weight_concept_available MUST be false.
-
 Cathay Pacific's OFFICIAL zone definitions (from the CX baggage page — treat as ground truth):
 - 往返香港: Hong Kong (HKG) itself
 - 第一区: 中国内地、澳门、中国台湾；中亚/东亚: 日本(Japan)、哈萨克斯坦、蒙古、俄罗斯(亚洲地区内)、韩国；东南亚: 柬埔寨、印度尼西亚、老挝、马来西亚、缅甸、菲律宾、新加坡、泰国、越南
@@ -1921,7 +1919,7 @@ function buildLookupPrompt(airlineCode, airlineName, cabin, origin, destination)
 
   let zoneNote;
   if (hasRoute && airlineCode === 'CX') {
-    zoneNote = `\nBelow are Cathay Pacific's ACTUAL published zone definitions. Determine which country each of ${origin} and ${destination} is in, then resolve each to a zone using ONLY the list below (do NOT search or guess zone membership — the list is authoritative).\n\n${CX_ZONE_FEE_TABLE}\n\nIn addition to the JSON keys listed later, you MUST include two extra keys: "origin_zone" and "dest_zone", each EXACTLY one of "香港"/"第一区"/"第二区"/"第三区"/"第四区"/"第五区"/"第六区". The zone-pair excess and overweight fees are then looked up from the official table by our code — whatever you put in excess_bag_fee_usd / overweight_fee_usd will be OVERRIDDEN, so don't agonize over them. State both zones in notes too, e.g. "HKG=香港，NRT(日本)=第一区".\n\nFor oversize_fee_usd: use your web_fetch tool to fetch and READ Cathay Pacific's official excess-baggage charges page at https://www.cathaypacific.com/cx/sc_CN/baggage/extra-baggage-charges/pay-cash-or-by-credit-card.html — it states the per-piece fee for oversized baggage (总尺寸 158–203cm). Use EXACTLY the number published on that page, not a guess from memory or search snippets.`;
+    zoneNote = `\nBelow are Cathay Pacific's ACTUAL published zone definitions. Determine which country each of ${origin} and ${destination} is in, then resolve each to a zone using ONLY the list below (do NOT search or guess zone membership — the list is authoritative).\n\n${CX_ZONE_FEE_TABLE}\n\nIn addition to the JSON keys listed later, you MUST include two extra keys: "origin_zone" and "dest_zone", each EXACTLY one of "香港"/"第一区"/"第二区"/"第三区"/"第四区"/"第五区"/"第六区". The zone-pair excess and overweight fees are then looked up from the official table by our code — whatever you put in excess_bag_fee_usd / overweight_fee_usd will be OVERRIDDEN, so don't agonize over them. State both zones in notes too, e.g. "HKG=香港，NRT(日本)=第一区".\n\nFor oversize_fee_usd: use your web_fetch tool to fetch and READ Cathay Pacific's official excess-baggage charges page at https://www.cathaypacific.com/cx/sc_CN/baggage/extra-baggage-charges/pay-cash-or-by-credit-card.html — it states the per-piece fee for oversized baggage (总尺寸 158–203cm). Use EXACTLY the number published on that page, not a guess from memory or search snippets.\n\nFor the weight_concept_* fields: check CX's official pages for whether a WEIGHT-based allowance system (total kg per passenger, excess billed per kg) applies to this route/fare — fill in the real allowance and per-kg fee if it exists, set weight_concept_available false only if CX genuinely doesn't offer it here. Do NOT invent a per-kg fee.`;
   } else if (hasRoute) {
     zoneNote = `\nIMPORTANT: ${airlineCode}'s excess/overweight/oversize baggage fees are usually tiered by a fare-zone system based on the origin-destination country/region pair. You have live web_search and web_fetch tools — use them to find ${airlineCode}'s actual official baggage fee page and zone definitions for this SPECIFIC route (${origin} → ${destination}), rather than guessing from memory. Report what you found and searched for in notes.`;
   } else {
@@ -2129,7 +2127,11 @@ function packOnce(boxes, rules, strategy) {
     };
   }
 
-  const recommended = (weightConcept && weightConcept.total_usd < pieceConcept.total_usd) ? weightConcept : pieceConcept;
+  // User rule: pick whichever concept is cheaper, but when they're close
+  // (within 5%) prefer 计件制 — its per-piece pricing is the safer default
+  // at the counter and keeps the plan simple.
+  const recommended = (weightConcept && weightConcept.total_usd < pieceConcept.total_usd * 0.95)
+    ? weightConcept : pieceConcept;
 
   const details = [recommended.detail];
   if (overweightCount) details.push(`${overweightCount} 件超重，按 ${rules.overweight_fee_text || rules.overweight_fee_usd + ' USD/件'} 收取`);
@@ -2204,7 +2206,9 @@ async function calculate() {
     // each successful lookup locally so repeat calculations don't burn API
     // tokens; expiry (2 weeks, per user's call) doubles as the periodic
     // "check the airline for updates" pass.
-    const cacheKey = `rules-cache:${airlineCode}|${cabin}|${origin}|${destination}`;
+    // v2: CX weight-concept lookup enabled — versioned so pre-change cached
+    // rules (forced piece-only) age out immediately instead of over 14 days
+    const cacheKey = `rules-cache:v2:${airlineCode}|${cabin}|${origin}|${destination}`;
     const RULES_CACHE_TTL_MS = 14 * 24 * 3600 * 1000;
     let rules = null;
     try {
@@ -2238,7 +2242,7 @@ async function calculate() {
           needsSearch,
           // Shared company-wide cache key on the proxy side (Upstash Redis) —
           // one paid lookup serves every machine for the TTL window.
-          cacheKey: `${airlineCode}|${cabin}|${origin}|${destination}`,
+          cacheKey: `v2:${airlineCode}|${cabin}|${origin}|${destination}`,
           messages: [{ role: 'user', content: prompt }]
         })
       });
