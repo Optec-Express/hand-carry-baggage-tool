@@ -61,9 +61,11 @@ export default async function handler(req, res) {
     messages: body.messages || [],
   };
   if (body.needsSearch) {
+    // Cost controls: searches bill $10/1K, and every fetched page re-enters
+    // the context on each server-tool iteration — cap both hard.
     anthropicReq.tools = [
-      { type: 'web_search_20260209', name: 'web_search', max_uses: 5 },
-      { type: 'web_fetch_20260209', name: 'web_fetch', max_uses: 5 },
+      { type: 'web_search_20260209', name: 'web_search', max_uses: 2 },
+      { type: 'web_fetch_20260209', name: 'web_fetch', max_uses: 2, max_content_tokens: 10000 },
     ];
   }
 
