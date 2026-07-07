@@ -2201,10 +2201,11 @@ async function calculate() {
 
   try {
     // Airline policy for a given airline/cabin/route is near-static — cache
-    // each successful lookup for 7 days so repeat calculations don't burn
-    // API tokens on identical lookups.
+    // each successful lookup locally so repeat calculations don't burn API
+    // tokens; expiry (2 weeks, per user's call) doubles as the periodic
+    // "check the airline for updates" pass.
     const cacheKey = `rules-cache:${airlineCode}|${cabin}|${origin}|${destination}`;
-    const RULES_CACHE_TTL_MS = 7 * 24 * 3600 * 1000;
+    const RULES_CACHE_TTL_MS = 14 * 24 * 3600 * 1000;
     let rules = null;
     try {
       const c = JSON.parse(localStorage.getItem(cacheKey));
