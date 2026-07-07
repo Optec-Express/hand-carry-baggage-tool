@@ -100,6 +100,10 @@ export default async function handler(req, res) {
   // overhead per round (Sonnet 5 at medium ≈ Sonnet 4.6 at high) so the whole
   // chain finishes well inside the timeout. Haiku doesn't accept effort.
   if (body.task === 'lookup') anthropicReq.output_config = { effort: 'medium' };
+  // Prompt caching: the tool loop re-reads the growing conversation on every
+  // round / pause_turn continuation — cached prefix bills at ~10% instead of
+  // full price. Auto-places the breakpoint on the last cacheable block.
+  anthropicReq.cache_control = { type: 'ephemeral' };
   if (body.needsSearch) {
     // Cost controls: searches bill $10/1K, and every fetched page re-enters
     // the context on each server-tool iteration — cap both hard.
