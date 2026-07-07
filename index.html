@@ -2038,6 +2038,10 @@ function packCouriers(items, rules) {
   const strategies = [
     { label: '不合并，逐箱直发', kgCap: 0,                          linearCap: 0 },
     { label: '全拼免费小件',     kgCap: Math.min(stdKg, hardKg),    linearCap: Math.min(stdLinear, hardLinear) },
+    // Heavy but not oversize: pays excess+overweight yet dodges the (often
+    // steepest) oversize fee — best $/kg among paid pieces when boxes are flat
+    // enough to stack under the standard linear limit.
+    { label: '拼重不拼大（不超尺）', kgCap: hardKg,                 linearCap: Math.min(stdLinear, hardLinear) },
     { label: '全拼大件',         kgCap: hardKg,                     linearCap: hardLinear },
   ];
   const runs = strategies.map(st => packOnce(boxes, rules, st));
