@@ -1909,6 +1909,11 @@ function cxApplyZoneFees(rules, originIata, destIata) {
     rules.overweight_fee_usd = over;
     rules.overweight_fee_text = `USD ${over}/件（${zonePair}，官方表）`;
   }
+  // CX oversize (158–203cm) is a flat USD 200/piece on all routes — an
+  // official published constant. The AI misread this repeatedly (150, 沿途
+  // guesses), so it's pinned like the zone fees.
+  rules.oversize_fee_usd = 200;
+  rules.oversize_fee_text = 'USD 200/件（全航线统一，官方定值）';
 }
 
 function buildLookupPrompt(airlineCode, airlineName, cabin, origin, destination) {
@@ -2206,8 +2211,9 @@ async function calculate() {
     // each successful lookup locally so repeat calculations don't burn API
     // tokens; expiry (2 weeks, per user's call) doubles as the periodic
     // "check the airline for updates" pass.
-    // v2: CX weight-concept lookup enabled — versioned so pre-change cached
-    // rules (forced piece-only) age out immediately instead of over 14 days
+    // v2: CX weight-concept lookup enabled. (The CX oversize fee is pinned in
+    // cxApplyZoneFees AFTER cache retrieval, so bad cached values get
+    // corrected without invalidating the cache.)
     const cacheKey = `rules-cache:v2:${airlineCode}|${cabin}|${origin}|${destination}`;
     const RULES_CACHE_TTL_MS = 14 * 24 * 3600 * 1000;
     let rules = null;
