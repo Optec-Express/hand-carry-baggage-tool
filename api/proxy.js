@@ -80,11 +80,23 @@ export default async function handler(req, res) {
   // Shared cache: lookups carry a route key; serve the whole company from one
   // paid query per airline/cabin/route per TTL window.
   const cacheKey = body.task === 'lookup' && body.cacheKey ? `rules:${body.cacheKey}` : null;
+  let lockKey = null;
   if (cacheKey) {
     const hit = await kvCmd(['GET', cacheKey]);
     if (hit) {
       console.log('[KV] hit', cacheKey);
       res.status(200).json({ content: [{ type: 'text', text: hit }], cached: true });
+      return;
+    }
+    // In-flight lock: a paid lookup for this route is already running (another
+    // colleague, or a re-click after a page reload). Don't start a second one.
+    lockKey = `lock:${cacheKey}`;
+    const acquired = await kvCmd(['SET', lockKey, '1', 'NX', 'EX', '300']);
+    if (acquired === undefined) {
+      lockKey = null; // KV not configured/unreachable — proceed without the lock
+    } else if (acquired === null) {
+      console.log('[KV] lookup already in flight for', cacheKey);
+      res.status(429).json({ error: { message: '这条航线的规则查询正在进行中（可能是同事触发的），请等 1–2 分钟后再点计算，结果会直接从缓存读取' } });
       return;
     }
   }
@@ -172,5 +184,9 @@ export default async function handler(req, res) {
   } catch (e) {
     console.error('[异常]', e);
     res.status(502).json({ error: { message: e.message } });
+  } finally {
+    // Release the in-flight lock on every exit path so a failed lookup
+    // doesn't block the route for the lock's full TTL.
+    if (lockKey) await kvCmd(['DEL', lockKey]);
   }
 }
