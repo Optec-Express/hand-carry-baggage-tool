@@ -205,7 +205,7 @@ body {
 .cargo-tbl th {
   background: var(--bg);
   padding: 8px 10px;
-  text-align: left;
+  text-align: center;
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.06em;
@@ -260,10 +260,13 @@ body {
   user-select: none;
 }
 
-.dim-cell { display: flex; align-items: center; }
-.dim-cell input { min-width: 52px; }
+.dim-cell { display: flex; align-items: center; justify-content: center; gap: 6px; }
+.dim-cell input { flex: 0 0 96px; width: 96px; min-width: 0; }
 
-.del-btn {
+.cargo-tbl td { text-align: center; }
+.cargo-tbl input[type=number] { text-align: center; }
+
+.del-btn, .row-add-btn {
   background: none;
   border: none;
   color: var(--text-3);
@@ -276,6 +279,8 @@ body {
 }
 
 .del-btn:hover { color: var(--err); background: var(--err-bg); }
+.row-add-btn { font-size: 16px; }
+.row-add-btn:hover { color: var(--accent); background: var(--accent-l); }
 
 .cargo-summary {
   margin-top: 10px;
@@ -1083,7 +1088,6 @@ body {
       </div>
       <div class="rule-note" id="cargo-import-note" style="display:none;"></div>
       <div class="cargo-summary" id="cargo-summary">合计：<b>0</b> 件 · <b>0.0</b> kg</div>
-      <button class="add-row" onclick="addRow()">＋ 添加货物行</button>
     </div>
 
     <!-- Paste tab -->
@@ -1360,33 +1364,45 @@ function switchTab(t) {
 }
 
 // ─── Row management ───────────────────────────────────────
-function addRow(d = {}) {
+// afterId: insert right below that row (the per-row ＋ button); omitted = append
+function addRow(d = {}, afterId) {
   const id = nextId++;
-  rows.push(id);
   const tr = document.createElement('tr');
   tr.id = 'r' + id;
   tr.innerHTML = `
-    <td class="rn" id="rn${id}">${rows.length}</td>
+    <td class="rn" id="rn${id}"></td>
     <td>
       <div class="dim-cell">
-        <input type="number" id="l${id}" min="1" placeholder="长" value="${d.l||''}" style="min-width:52px;">
+        <input type="number" id="l${id}" min="1" placeholder="长" value="${d.l||''}">
         <span class="dim-sep">×</span>
-        <input type="number" id="w${id}" min="1" placeholder="宽" value="${d.w||''}" style="min-width:52px;">
+        <input type="number" id="w${id}" min="1" placeholder="宽" value="${d.w||''}">
         <span class="dim-sep">×</span>
-        <input type="number" id="h${id}" min="1" placeholder="高" value="${d.h||''}" style="min-width:52px;">
+        <input type="number" id="h${id}" min="1" placeholder="高" value="${d.h||''}">
       </div>
     </td>
-    <td><input type="number" id="kg${id}" min="0.01" step="0.01" placeholder="0.0" value="${d.kg||''}" style="min-width:80px;"></td>
-    <td><input type="number" id="q${id}" min="1" step="1" placeholder="1" value="${d.q||1}" style="min-width:54px;"></td>
-    <td><button class="del-btn" onclick="delRow(${id})" title="删除">✕</button></td>
+    <td><input type="number" id="kg${id}" min="0.01" step="0.01" placeholder="0.0" value="${d.kg||''}" style="width:110px;min-width:0;"></td>
+    <td><input type="number" id="q${id}" min="1" step="1" placeholder="1" value="${d.q||1}" style="width:80px;min-width:0;"></td>
+    <td style="white-space:nowrap;">
+      <button class="row-add-btn" onclick="addRow({}, ${id})" title="在下方添加一行">＋</button>
+      <button class="del-btn" onclick="delRow(${id})" title="删除">✕</button>
+    </td>
   `;
-  document.getElementById('tbl-body').appendChild(tr);
+  const anchor = afterId != null ? document.getElementById('r' + afterId) : null;
+  if (anchor) {
+    anchor.after(tr);
+    rows.splice(rows.indexOf(afterId) + 1, 0, id);
+  } else {
+    document.getElementById('tbl-body').appendChild(tr);
+    rows.push(id);
+  }
+  renumber();
   updateCargoSummary();
 }
 
 function delRow(id) {
   rows = rows.filter(x => x !== id);
   document.getElementById('r'+id)?.remove();
+  if (!rows.length) { addRow(); return; } // always keep one row so the ＋ stays reachable
   renumber();
   updateCargoSummary();
 }
