@@ -2401,7 +2401,7 @@ function assignAndPrice(pieces, rules, strategyLabel, totalBoxes) {
       + (oversizeCount ? `，${oversizeCount} 件超尺寸` : '')
       + (weightConcept
           ? `。该航线计件/计重均可，按${recommended.label}更划算，预计总费用 USD ${recommended.total_usd.toLocaleString()}（计件制 USD ${pieceConcept.total_usd.toLocaleString()} / 计重制 USD ${weightConcept.total_usd.toLocaleString()}）`
-          : `。该航线为${recommended.label}，预计总费用 USD ${recommended.total_usd.toLocaleString()}`)
+          : `。计费按${recommended.label}更合适，预计总费用 USD ${recommended.total_usd.toLocaleString()}`)
       + '。',
   };
 }
@@ -2698,7 +2698,7 @@ function renderResults(r) {
   if (cost.recommended_concept) {
     costRows.push(cost.weight_concept
       ? { l: '推荐计费方式（两种均可，取便宜）', v: cost.recommended_concept }
-      : { l: '计费方式（该航线仅此一种）', v: cost.recommended_concept });
+      : { l: '计费方式', v: `${cost.recommended_concept}（更合适）` });
   }
   if (cost.overweight_cost_usd > 0) costRows.push({ l: '超重费', v: `USD ${cost.overweight_cost_usd.toLocaleString()}` });
   if (cost.oversize_cost_usd > 0) costRows.push({ l: '超尺寸费', v: `USD ${cost.oversize_cost_usd.toLocaleString()}` });
