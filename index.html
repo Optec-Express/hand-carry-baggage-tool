@@ -2202,10 +2202,45 @@ function addToBundle(bd, b, dims) {
   bd.boxes.push(b);
 }
 
+// Top-off / consolidation pass: greedy first-fit can leave two half-full
+// pieces that would physically fit into one (e.g. a 26kg/185cm bundle plus a
+// leftover 5kg box). Repeatedly fold the lightest bundle into another whenever
+// their combined weight AND stack size still clear every cap, until no pair
+// fits. Same vertical-stack model as fitsBundle: footprint = max of bases,
+// height = sum. This only ever reduces the piece count, never violates a cap.
+function consolidateBundles(bundles, kgCap, linearCap, rules) {
+  let changed = true;
+  while (changed) {
+    changed = false;
+    // Lightest bundle first — it's the cheapest to dissolve into others.
+    bundles.sort((a, b) => a.kg - b.kg);
+    for (let i = 0; i < bundles.length && !changed; i++) {
+      const src = bundles[i];
+      for (let j = 0; j < bundles.length; j++) {
+        if (i === j) continue;
+        const dst = bundles[j];
+        const kg = src.kg + dst.kg;
+        const L = Math.max(src.L, dst.L), W = Math.max(src.W, dst.W), H = src.H + dst.H;
+        if (kg > kgCap || L + W + H > linearCap) continue;
+        if (rules.length_limit_cm && L > rules.length_limit_cm) continue;
+        if (rules.width_limit_cm  && W > rules.width_limit_cm)  continue;
+        if (rules.height_limit_cm && H > rules.height_limit_cm) continue;
+        dst.kg = kg; dst.L = L; dst.W = W; dst.H = H;
+        dst.boxes = dst.boxes.concat(src.boxes);
+        bundles.splice(i, 1);
+        changed = true;
+        break;
+      }
+    }
+  }
+  return bundles;
+}
+
 // Greedy first-fit merge under the given caps. Tries two orderings —
 // footprint-first (similar bases stack with little wasted footprint) and
-// weight-first (packs kg tighter, freely mixing sizes) — and keeps whichever
-// produces fewer pieces. kgCap 0 = no merging at all.
+// weight-first (packs kg tighter, freely mixing sizes) — then runs a
+// consolidation pass to squeeze any remaining half-full pieces together, and
+// keeps whichever ordering produces fewer pieces. kgCap 0 = no merging at all.
 function mergeBoxes(boxes, rules, kgCap, linearCap) {
   if (kgCap <= 0) {
     return boxes.map(b => ({ kg: b.kg, L: b.s0, W: b.s1, H: b.s2, boxes: [b] }));
@@ -2225,6 +2260,7 @@ function mergeBoxes(boxes, rules, kgCap, linearCap) {
       }
       if (!placed) bundles.push({ kg: b.kg, L: b.s0, W: b.s1, H: b.s2, boxes: [b] });
     }
+    consolidateBundles(bundles, kgCap, linearCap, rules);
     if (!best || bundles.length < best.length) best = bundles;
   }
   return best;
