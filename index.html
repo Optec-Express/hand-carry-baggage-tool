@@ -1245,10 +1245,7 @@ body {
           <div id="cost-compare" style="display:none;"></div>
           <div id="cost-detail" class="cost-detail" style="display:none;"></div>
         </div>
-        <div style="display:flex; flex-direction:column; gap:14px; min-width:0;">
-          <div class="cost-right" id="cost-strategies" style="display:none;"></div>
-          <div class="ai-summary" id="ai-summary" style="display:none; margin:0;"></div>
-        </div>
+        <div class="cost-right" id="cost-strategies" style="display:none;"></div>
       </div>
       <div id="cost-disclaimer" class="disclaimer"></div>
     </div>
@@ -2638,14 +2635,8 @@ function renderResults(r) {
     noteEl.innerHTML = `<div class="rule-note">📌 ${rules.notes}</div>`;
   }
 
-  // Summary
-  const sumEl = document.getElementById('ai-summary');
-  if (summary) {
-    sumEl.textContent = summary;
-    sumEl.style.display = '';
-  } else {
-    sumEl.style.display = 'none';
-  }
+  // Summary banner removed per user preference — the strategy table and fee
+  // breakdown already carry all of its information.
 
   // Couriers, each with their own bags-grid
   document.getElementById('bags-grid').innerHTML = couriers.map(courier => {
