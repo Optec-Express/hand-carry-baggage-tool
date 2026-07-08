@@ -2307,21 +2307,24 @@ function packCarve(boxes, rules) {
 function assignAndPrice(pieces, rules, strategyLabel, totalBoxes) {
   const freeBagsPerPax = rules.free_bags_per_pax || 1;
   const maxBagsPerPax  = rules.max_bags_per_pax || 10;
-  const maxTotalWeightKg = rules.max_total_weight_kg || 0;   // 0 = no cap; practical ceiling on one courier's total load
+  // One courier realistically hauls 100–150kg; when the user leaves the
+  // manual cap unset, default to 150 so nobody gets a 300kg load. A manual
+  // value always wins.
+  const maxTotalWeightKg = rules.max_total_weight_kg > 0 ? rules.max_total_weight_kg : 150;
   const hardKg     = rules.weight_limit_kg || Infinity;
   const hardLinear = rules.linear_limit_cm || Infinity;
 
   // Heaviest first so each courier's load is front-loaded and easy to scan
   pieces.sort((a, b) => b.kg - a.kg);
 
-  // Greedily fill each courier up to whichever limit hits first: piece count
-  // (max_bags_per_pax) or total weight (max_total_weight_kg, if the user set one).
-  const courierSlices = [];
+  // Pass 1 — minimum headcount: greedily fill each courier up to whichever
+  // limit hits first, piece count or weight cap.
+  let courierSlices = [];
   let current = [];
   let currentWeight = 0;
   for (const p of pieces) {
     const wouldExceedCount = current.length >= maxBagsPerPax;
-    const wouldExceedWeight = maxTotalWeightKg > 0 && current.length > 0 && (currentWeight + p.kg) > maxTotalWeightKg;
+    const wouldExceedWeight = current.length > 0 && (currentWeight + p.kg) > maxTotalWeightKg;
     if (wouldExceedCount || wouldExceedWeight) {
       courierSlices.push(current);
       current = [];
@@ -2331,6 +2334,28 @@ function assignAndPrice(pieces, rules, strategyLabel, totalBoxes) {
     currentWeight += p.kg;
   }
   if (current.length) courierSlices.push(current);
+
+  // Pass 2 — balance: same headcount, but deal pieces least-loaded-first so
+  // the weight spreads evenly instead of maxing courier 1 and leaving
+  // courier N nearly empty.
+  const N = courierSlices.length;
+  if (N > 1) {
+    const slices = Array.from({ length: N }, () => []);
+    const loads = new Array(N).fill(0);
+    let ok = true;
+    for (const p of pieces) {
+      let bi = -1;
+      for (let i = 0; i < N; i++) {
+        if (slices[i].length >= maxBagsPerPax) continue;
+        if (slices[i].length > 0 && loads[i] + p.kg > maxTotalWeightKg) continue;
+        if (bi === -1 || loads[i] < loads[bi]) bi = i;
+      }
+      if (bi === -1) { ok = false; break; }
+      slices[bi].push(p);
+      loads[bi] += p.kg;
+    }
+    if (ok) courierSlices = slices.filter(s => s.length);
+  }
 
   const couriers = courierSlices.map((slice, ci) => ({
     courier_no: ci + 1,
@@ -2784,7 +2809,7 @@ function renderResults(r) {
   document.getElementById('rules-maxbags').innerHTML =
     `<div class="section-hd" style="margin:14px 0 8px; width:100%;">人工调整</div>`
     + `<div class="rule-block maxbags-block"><span class="lbl">每人最多可托运</span><input type="number" id="rule-maxbags" min="0" value="${rules.max_bags_per_pax ?? 0}"><span class="lbl">件</span></div>`
-    + `<div class="rule-block maxbags-block"><span class="lbl">每人最多限重</span><input type="number" id="rule-max-total-weight" min="0" value="${rules.max_total_weight_kg ?? 0}"><span class="lbl">kg</span></div>`;
+    + `<div class="rule-block maxbags-block"><span class="lbl">每人最多限重</span><input type="number" id="rule-max-total-weight" min="0" value="${rules.max_total_weight_kg || ''}" placeholder="默认150"><span class="lbl">kg</span></div>`;
 
   const noteEl = document.getElementById('rules-note');
   noteEl.innerHTML = '';
