@@ -2602,6 +2602,10 @@ async function calculate() {
         rules.notes = rules.notes
           .split(/[；;。]/)
           .filter(seg => seg && !/最大件数|最多可购买|购买\s*3|purchase|extra piece/i.test(seg))
+          // drop developer-facing jargon the AI sometimes leaks from the prompt
+          .filter(seg => !/_fee_usd|_usd|程序覆盖|被覆盖|JS\s*动态|动态渲染|字段|json/i.test(seg))
+          .map(seg => seg.trim())
+          .filter(Boolean)
           .join('；');
       }
       const capNote = `国泰计件制每人最多可购买 3 件额外行李，故每人上限 = 免费 ${freeN} 件 + 加购 3 件 = ${rules.max_bags_per_pax} 件`;
