@@ -2738,12 +2738,12 @@ function renderResults(r) {
   const stratEl = document.getElementById('cost-strategies');
   if (cost.strategy_comparison && cost.strategy_comparison.length) {
     const STRATEGY_DESCS = {
-      '不合并，逐箱直发': '零打包操作，单件最轻便，柜台风险最低',
-      '全拼免费小件': '全部合规免罚金，行李费通常最省，但件数和人数最多',
-      '拼重不拼大（不超尺）': '压重量但不超尺寸，避开最贵的超尺费，适合扁平箱型',
-      '全拼大件': '件数和人数压到最少，代价是件件交超重+超尺费',
-      '免费额度装小件，其余拼大件': '先占满免费名额再拼大件，费用与人数的平衡型',
-      '大件为主，抠出免费小件': '人数锁定最少，在此前提下抠回免费额度省费',
+      '不合并，逐箱直发': '零打包操作；超出免费名额的每件收超件费，无超重/超尺附加费',
+      '全拼免费小件': '每件都合规（≤标准重量和尺寸）：免费名额内 0 费，超出的只收超件费',
+      '拼重不拼大（不超尺）': '拼到重量上限但不超尺寸：付超件+超重，避开最贵的超尺费',
+      '全拼大件': '拼到重量和尺寸双上限：件数人数最少，每件付超件+超重+超尺',
+      '免费额度装小件，其余拼大件': '免费名额装合规小件（0 费），剩余货集中拼大件',
+      '大件为主，抠出免费小件': '先按大件把人数压到最少，再用免费名额抠回省费',
     };
     const cmpCell = s => {
       if (s.chosen) return '✓ 推荐';
@@ -2755,7 +2755,7 @@ function renderResults(r) {
     };
     stratEl.innerHTML = `
       <div class="strategy-hd">打包方案对比（全部 ${cost.strategy_comparison.length} 种策略）</div>
-      <div class="strategy-sub">推荐规则：人数最少，同人数取行李费最低；"省/贵"均相对推荐方案</div>
+      <div class="strategy-sub">推荐规则：人数最少，同人数取行李费最低；"省/贵"均相对推荐方案。当前限制：每人最多 ${rules.max_bags_per_pax || 10} 件${rules.airline_code === 'CX' ? `（免费 ${rules.free_bags_per_pax} 件 + 最多加购 3 件，国泰官方规定）` : `（免费 ${rules.free_bags_per_pax} 件）`}</div>
       <table class="strategy-table">
         <tr><th>打包方式</th><th>飞人</th><th>行李</th><th>行李费</th><th>对比</th></tr>
         ${cost.strategy_comparison.map(s => `
