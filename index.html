@@ -263,6 +263,11 @@ body {
 .dim-cell { display: flex; align-items: center; justify-content: center; gap: 12px; }
 .dim-cell input { flex: 0 0 104px; width: 104px; min-width: 0; }
 
+/* Header mirrors the dim-cell layout exactly (same widths, gaps, and hidden
+   × spacers) so 长/宽/高 sit precisely above their own number columns */
+.dim-head { display: flex; align-items: center; justify-content: center; gap: 12px; }
+.dim-head .dh { flex: 0 0 104px; text-align: center; }
+
 .cargo-tbl td { text-align: center; }
 .cargo-tbl input[type=number] { text-align: center; }
 /* Fixed proportional columns keep every header on the same axis as its
@@ -1087,7 +1092,15 @@ body {
           <thead>
             <tr>
               <th>#</th>
-              <th>尺寸 长×宽×高 (cm)</th>
+              <th>
+                <div class="dim-head">
+                  <span class="dh">长 (cm)</span>
+                  <span class="dim-sep" style="visibility:hidden;">×</span>
+                  <span class="dh">宽 (cm)</span>
+                  <span class="dim-sep" style="visibility:hidden;">×</span>
+                  <span class="dh">高 (cm)</span>
+                </div>
+              </th>
               <th>单件重量 (kg)</th>
               <th>件数</th>
               <th></th>
