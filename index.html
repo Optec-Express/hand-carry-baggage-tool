@@ -2101,18 +2101,28 @@ function packCouriers(items, rules) {
   runs.push(packCarve(boxes, rules));
 
   // All strategies are shown (user preference — no hiding); the pick rule
-  // stays fewest couriers first, then lowest baggage fees.
+  // stays fewest couriers first, then lowest baggage fees. Strategies that
+  // land on the exact same outcome (couriers + pieces + fees) collapse into
+  // one row, with the merged names noted.
   const ranked = runs.slice().sort((a, b) =>
     a.cost.total_couriers - b.cost.total_couriers || a.cost.total_usd - b.cost.total_usd);
-  const best = ranked[0];
-  best.cost.strategy_comparison = ranked.map(r => ({
-    label: r.strategy_label,
-    couriers: r.cost.total_couriers,
-    bags: r.cost.total_bags,
-    usd: r.cost.total_usd,
-    chosen: r === best,
-    extra_people: r.cost.total_couriers - best.cost.total_couriers,
-    fee_delta: r.cost.total_usd - best.cost.total_usd,  // vs the pick: minus = cheaper
+  const groups = [];
+  for (const r of ranked) {
+    const key = `${r.cost.total_couriers}|${r.cost.total_bags}|${r.cost.total_usd}`;
+    const g = groups.find(x => x.key === key);
+    if (g) { g.also.push(r.strategy_label); continue; }
+    groups.push({ key, run: r, also: [] });
+  }
+  const best = groups[0].run;
+  best.cost.strategy_comparison = groups.map(g => ({
+    label: g.run.strategy_label,
+    also: g.also,
+    couriers: g.run.cost.total_couriers,
+    bags: g.run.cost.total_bags,
+    usd: g.run.cost.total_usd,
+    chosen: g.run === best,
+    extra_people: g.run.cost.total_couriers - best.cost.total_couriers,
+    fee_delta: g.run.cost.total_usd - best.cost.total_usd,  // vs the pick: minus = cheaper
   }));
   best.summary = `【打包策略：${best.strategy_label}】` + best.summary;
   return best;
@@ -2761,7 +2771,7 @@ function renderResults(r) {
         <tr><th>打包方式</th><th>飞人</th><th>行李</th><th>行李费</th><th>对比</th></tr>
         ${cost.strategy_comparison.map(s => `
         <tr class="${s.chosen ? 'picked' : ''}">
-          <td>${s.chosen ? '✓ ' : ''}${s.label}<div class="strategy-desc">${STRATEGY_DESCS[s.label] || ''}</div></td>
+          <td>${s.chosen ? '✓ ' : ''}${s.label}<div class="strategy-desc">${STRATEGY_DESCS[s.label] || ''}</div>${s.also && s.also.length ? `<div class="strategy-desc">「${s.also.join('」「')}」在本批货物下结果相同，已合并</div>` : ''}</td>
           <td class="num">${s.couriers} 人</td>
           <td class="num">${s.bags} 件</td>
           <td class="fee">USD ${s.usd.toLocaleString()}</td>
