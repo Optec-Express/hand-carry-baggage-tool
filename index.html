@@ -1918,6 +1918,8 @@ function importOcrItems() {
 // the route into a zone and read a cell, instead of recalling dollar figures
 // from memory (which it can't do reliably; see git history for why).
 const CX_ZONE_FEE_TABLE = `
+Cathay Pacific OFFICIAL piece-concept purchase cap: a passenger may BUY at most 3 extra pieces beyond the ticket's free allowance — so max_bags_per_pax = free_bags_per_pax + 3.
+
 Cathay Pacific's OFFICIAL zone definitions (from the CX baggage page — treat as ground truth):
 - 往返香港: Hong Kong (HKG) itself
 - 第一区: 中国内地、澳门、中国台湾；中亚/东亚: 日本(Japan)、哈萨克斯坦、蒙古、俄罗斯(亚洲地区内)、韩国；东南亚: 柬埔寨、印度尼西亚、老挝、马来西亚、缅甸、菲律宾、新加坡、泰国、越南
@@ -2035,7 +2037,7 @@ Provide:
 - standard_linear_cm: the STANDARD/free linear size (L+W+H) limit beyond which the oversize FEE starts to apply — this IS that ubiquitous 158cm figure, the SMALLER size number, different from linear_limit_cm above
 - length_limit_cm / width_limit_cm / height_limit_cm: individual per-dimension MAXIMUM caps if the airline states them instead of/alongside linear, else null
 - free_bags_per_pax: standard number of free checked bags per passenger in this cabin
-- max_bags_per_pax: the MAXIMUM total bags one passenger may check in total, even paying excess fees (many airlines cap this, e.g. 9-10 bags/pax); if genuinely uncapped, use a sensible conservative number like 10
+- max_bags_per_pax: the MAXIMUM total bags one passenger may check in, even paying excess fees. IMPORTANT: many airlines cap how many EXTRA pieces a passenger may PURCHASE beyond the free allowance (e.g. Cathay Pacific sells at most 3 extra pieces, so total = free + 3) — actively look for this published purchase cap on the airline's excess-baggage page and compute total = free + purchasable; if genuinely uncapped, use a sensible conservative number like 10. Mention the purchase cap in notes.
 - excess_bag_fee_usd: numeric USD fee per bag beyond the free allowance under the PIECE CONCEPT, for the SPECIFIC route/zone above if given (else a reasonable cross-zone average)
 - overweight_fee_usd: numeric USD surcharge for one overweight bag, for that same specific zone if given
 - oversize_fee_usd: numeric USD surcharge for one oversized bag, for that same specific zone if given
@@ -2525,11 +2527,15 @@ async function calculate() {
     // airline's fixed "will not accept beyond this" policy fact, not a fare choice.
     if (allowance.free !== 'auto') rules.free_bags_per_pax = parseInt(allowance.free);
     if (allowance.weight !== 'auto') rules.standard_weight_kg = parseFloat(allowance.weight);
-    // Practical caps the user is expected to verify themselves — both start
-    // unset (0 = no cap) on the FIRST lookup. Once the user fills one in and
-    // hits 重新计算, the plan is redone under that cap and renderResults()
-    // echoes the value back.
-    rules.max_bags_per_pax = 0;
+    // Per-passenger piece cap comes from the airline's published purchase
+    // limit (looked up and cached with the rules). CX is code-enforced:
+    // at most 3 purchasable extra pieces, so total = free + 3. The user can
+    // still override via 人工调整 + 重新计算.
+    if (airlineCode === 'CX') {
+      rules.max_bags_per_pax = (parseInt(rules.free_bags_per_pax) || 2) + 3;
+    } else {
+      rules.max_bags_per_pax = rules.max_bags_per_pax > 0 ? rules.max_bags_per_pax : 0;
+    }
     rules.max_total_weight_kg = 0;
 
     const packed = packCouriers(items, rules);
