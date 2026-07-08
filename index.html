@@ -1072,10 +1072,13 @@ body {
   <div class="card">
     <div class="card-title">货物清单</div>
 
-    <div class="tabs">
-      <button class="tab active" id="tab-manual" onclick="switchTab('manual')">手动输入</button>
-      <button class="tab" id="tab-paste" onclick="switchTab('paste')">Excel 批量导入</button>
-      <button class="tab" id="tab-ocr" onclick="switchTab('ocr')">截图识别 OCR</button>
+    <div style="display:flex; align-items:center; gap:16px; margin-bottom:16px;">
+      <div class="tabs" style="margin-bottom:0; flex:0 0 auto;">
+        <button class="tab active" id="tab-manual" onclick="switchTab('manual')">手动输入</button>
+        <button class="tab" id="tab-paste" onclick="switchTab('paste')">Excel 批量导入</button>
+        <button class="tab" id="tab-ocr" onclick="switchTab('ocr')">截图识别 OCR</button>
+      </div>
+      <div class="rule-note" id="cargo-import-note" style="display:none; margin:0; flex:1;"></div>
     </div>
 
     <!-- Manual tab -->
@@ -1109,7 +1112,6 @@ body {
           <tbody id="tbl-body"></tbody>
         </table>
       </div>
-      <div class="rule-note" id="cargo-import-note" style="display:none;"></div>
       <div class="cargo-summary" id="cargo-summary">合计：<b>0</b> 件 · <b>0.0</b> kg</div>
     </div>
 
