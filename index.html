@@ -260,14 +260,21 @@ body {
   user-select: none;
 }
 
-.dim-cell { display: flex; align-items: center; justify-content: center; gap: 6px; }
-.dim-cell input { flex: 0 0 96px; width: 96px; min-width: 0; }
+.dim-cell { display: flex; align-items: center; justify-content: center; gap: 12px; }
+.dim-cell input { flex: 0 0 104px; width: 104px; min-width: 0; }
 
 .cargo-tbl td { text-align: center; }
 .cargo-tbl input[type=number] { text-align: center; }
 /* Fixed proportional columns keep every header on the same axis as its
    numbers — auto layout let the dims column balloon and open dead gaps */
 .manual-tbl { table-layout: fixed; width: 100%; }
+/* Visible field boxes: floating borderless digits read as clutter, a light
+   filled box per value gives the row an even rhythm */
+.manual-tbl input {
+  background: var(--bg);
+  border-color: var(--border);
+}
+.manual-tbl input:hover { background: #fff; }
 
 .del-btn, .row-add-btn {
   background: none;
