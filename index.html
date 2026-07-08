@@ -1230,6 +1230,10 @@ body {
     <button class="calc-btn" id="calc-btn" onclick="calculate()">
       AI 智能计算最优打包方案
     </button>
+    <button class="btn-outline" id="reset-btn" onclick="resetAll()"
+            style="margin-top:10px; width:100%; padding:9px 0; font-size:13px;">
+      🔄 清空，计算新航线
+    </button>
   </div>
 
   <!-- Loading -->
@@ -1783,6 +1787,36 @@ function clearOcr() {
   document.getElementById('drop-zone').style.display = '';
   document.getElementById('ocr-result-area').style.display = 'none';
   document.getElementById('ocr-file-input').value = '';
+}
+
+// One-click reset for the next airline/route: clears cargo, paste box, OCR,
+// route inputs and manual overrides, and hides the last result. Keeps the
+// cached airline rules in localStorage (so a re-lookup stays free) — this
+// only wipes the on-screen inputs, not the paid cache.
+function resetAll() {
+  // cargo table → single empty row
+  document.getElementById('tbl-body').innerHTML = '';
+  rows = [];
+  addRow();
+  // paste + OCR
+  document.getElementById('paste-area').value = '';
+  clearOcr();
+  const note = document.getElementById('cargo-import-note');
+  if (note) { note.style.display = 'none'; note.innerHTML = ''; }
+  importedTotalWeightKg = null;
+  // route + manual overrides
+  document.getElementById('inp-origin').value = '';
+  document.getElementById('inp-destination').value = '';
+  document.getElementById('sel-free-bags').value = 'auto';
+  document.getElementById('sel-bag-weight').value = 'auto';
+  // hide the previous result (don't wipe its markup — render() reuses the IDs)
+  document.getElementById('results').style.display = 'none';
+  lastCalc = null;
+  lastRender = null;
+  updateCargoSummary();
+  switchTab('manual');
+  toast('已清空，请选择新航司并录入货物');
+  window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 async function compressImage(file) {
