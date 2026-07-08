@@ -1229,8 +1229,6 @@ body {
       <div id="rules-note"></div>
     </div>
 
-    <div class="ai-summary" id="ai-summary" style="display:none;"></div>
-
     <div class="card">
       <div class="section-hd">费用估算</div>
       <div class="cost-body">
@@ -1239,7 +1237,10 @@ body {
           <div id="cost-compare" style="display:none;"></div>
           <div id="cost-detail" class="cost-detail" style="display:none;"></div>
         </div>
-        <div class="cost-right" id="cost-strategies" style="display:none;"></div>
+        <div style="display:flex; flex-direction:column; gap:14px; min-width:0;">
+          <div class="cost-right" id="cost-strategies" style="display:none;"></div>
+          <div class="ai-summary" id="ai-summary" style="display:none; margin:0;"></div>
+        </div>
       </div>
       <div id="cost-disclaimer" class="disclaimer"></div>
     </div>
