@@ -1826,8 +1826,10 @@ For each item extract:
 
 Use null for any field not found in the image. If no dimensions found at all, return empty items array.
 
+The "notes" field MUST be written in concise Simplified Chinese for a non-technical user — only mention things that affect the numbers (unit conversion, unusual/unclear values, blurry image). Do NOT include field names, code, or reasoning jargon. Empty string if nothing noteworthy.
+
 Reply with ONLY this JSON, no explanation, no markdown, no extra text:
-{"items":[{"desc":"name","l":60,"w":40,"h":35,"kg":8.5,"q":1}],"confidence":"high","notes":"any notes about unit conversion or image quality"}`;
+{"items":[{"desc":"name","l":60,"w":40,"h":35,"kg":8.5,"q":1}],"confidence":"high","notes":"尺寸按毫米÷10换算为厘米；第5行重量原文为混合值，已取平均"}`;
 
   try {
     const res = await fetch('/api/proxy', {
