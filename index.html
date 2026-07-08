@@ -2139,9 +2139,9 @@ function packCouriers(items, rules) {
   const stdKg      = rules.standard_weight_kg || hardKg;
   const stdLinear  = rules.standard_linear_cm || 158;
 
+  // 散件直运（不合并）和标准件拼装（全拼成小标准件）都要多派好几个人，
+  // 现实中不会这么打包，用户明确不要，已移除。只保留真正会用的拼装方式。
   const strategies = [
-    { label: '散件直运',     kgCap: 0,                          linearCap: 0 },
-    { label: '标准件拼装',   kgCap: Math.min(stdKg, hardKg),    linearCap: Math.min(stdLinear, hardLinear) },
     // Heavy but not oversize: pays excess+overweight yet dodges the (often
     // steepest) oversize fee — best $/kg among paid pieces when boxes are flat
     // enough to stack under the standard linear limit.
@@ -2152,18 +2152,23 @@ function packCouriers(items, rules) {
   runs.push(packHybrid(boxes, rules));
   runs.push(packCarve(boxes, rules));
 
-  // All strategies are shown (user preference — no hiding); the pick rule
-  // stays fewest couriers first, then lowest baggage fees. Strategies that
-  // land on the exact same outcome (couriers + pieces + fees) collapse into
-  // one row, with the merged names noted.
+  // 选择规则：先比飞人数（人少省人工/机票），人数相同再比行李费。
+  // 人数相同、行李费更贵的方案属于「被完全压制」——不再展示，只保留最便宜的
+  // 那个（用户：人数一样的只推荐行李费便宜的）。结果完全相同的策略合并成一行。
   const ranked = runs.slice().sort((a, b) =>
     a.cost.total_couriers - b.cost.total_couriers || a.cost.total_usd - b.cost.total_usd);
   const groups = [];
   for (const r of ranked) {
-    const key = `${r.cost.total_couriers}|${r.cost.total_bags}|${r.cost.total_usd}`;
-    const g = groups.find(x => x.key === key);
-    if (g) { g.also.push(r.strategy_label); continue; }
-    groups.push({ key, run: r, also: [] });
+    const sameHead = groups.find(g => g.run.cost.total_couriers === r.cost.total_couriers);
+    if (sameHead) {
+      // 同人数、同件数、同费用 → 结果一致，折进 also；否则更贵，直接隐藏。
+      if (sameHead.run.cost.total_bags === r.cost.total_bags &&
+          sameHead.run.cost.total_usd === r.cost.total_usd) {
+        sameHead.also.push(r.strategy_label);
+      }
+      continue;
+    }
+    groups.push({ run: r, also: [] });
   }
   const best = groups[0].run;
   best.cost.strategy_comparison = groups.map(g => ({
