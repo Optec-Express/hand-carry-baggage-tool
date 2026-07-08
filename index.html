@@ -1441,6 +1441,7 @@ function addRow(d = {}, afterId) {
     <td><input type="number" id="kg${id}" min="0.01" step="0.01" placeholder="0.0" value="${d.kg||''}" style="width:110px;min-width:0;"></td>
     <td><input type="number" id="q${id}" min="1" step="1" placeholder="1" value="${d.q||1}" style="width:80px;min-width:0;"></td>
     <td style="white-space:nowrap;">
+      <button class="row-add-btn" onclick="dupRow(${id})" title="复制本行">⧉</button>
       <button class="row-add-btn" onclick="addRow({}, ${id})" title="在下方添加一行">＋</button>
       <button class="del-btn" onclick="delRow(${id})" title="删除">✕</button>
     </td>
@@ -1463,6 +1464,15 @@ function delRow(id) {
   if (!rows.length) { addRow(); return; } // always keep one row so the ＋ stays reachable
   renumber();
   updateCargoSummary();
+}
+
+// Copy a row's current values into a new row right below it
+function dupRow(id) {
+  const g = k => document.getElementById(k + id)?.value;
+  addRow({
+    l: g('l'), w: g('w'), h: g('h'),
+    kg: g('kg'), q: g('q'),
+  }, id);
 }
 
 // Drop rows where nothing at all has been entered yet (leftover blank placeholder rows)
