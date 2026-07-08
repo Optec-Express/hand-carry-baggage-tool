@@ -644,6 +644,24 @@ body {
 
 .bag-items { margin-bottom: 10px; }
 
+.bag-iso {
+  display: flex;
+  justify-content: center;
+  margin: 2px 0 8px;
+}
+.bag-iso svg { display: block; }
+
+.bag-item .idot {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  display: inline-block;
+  margin-right: 6px;
+  vertical-align: baseline;
+  flex: none;
+}
+.bag-item .iname { font-family: var(--mono); font-size: 12px; }
+
 .bag-item {
   display: flex;
   justify-content: space-between;
@@ -2307,6 +2325,8 @@ function assignAndPrice(pieces, rules, strategyLabel, totalBoxes) {
     bags: slice.map((p, idx) => ({
       bag_no: idx + 1,
       merged_from: p.boxes.length,
+      // stacking order, footprint-oriented dims — drives the isometric sketch
+      stack: p.boxes.map(b => ({ l: b.s0, w: b.s1, h: b.s2 })),
       items: p.boxes.map(b => ({ label: b.desc || '货物', dims: `${b.l}x${b.w}x${b.h}`, weight_kg: b.kg })),
       dims: `${p.l}x${p.w}x${p.h}`,
       total_weight_kg: +p.kg.toFixed(1),
@@ -2563,6 +2583,43 @@ async function calculate() {
 }
 
 // ─── Render ───────────────────────────────────────────────
+// ─── Isometric bag sketch ─────────────────────────────────
+// Concept drawing of how the boxes stack inside one checked piece: corner-on
+// isometric view, bottom box drawn first, one color per box (matching the
+// dots in the content list). Pure SVG — crisp at any size, zero deps.
+const ISO_COLORS = [
+  ['#DBEAFE', '#BFDBFE', '#93C5FD', '#3B82F6'],
+  ['#D1FAE5', '#A7F3D0', '#6EE7B7', '#10B981'],
+  ['#FEF3C7', '#FDE68A', '#FCD34D', '#F59E0B'],
+  ['#FCE7F3', '#FBCFE8', '#F9A8D4', '#EC4899'],
+  ['#EDE9FE', '#DDD6FE', '#C4B5FD', '#8B5CF6'],
+  ['#FFEDD5', '#FED7AA', '#FDBA74', '#F97316'],
+];
+
+function isoSVG(stack) {
+  if (!stack || !stack.length) return '';
+  const c = Math.cos(Math.PI / 6), d = 0.5;
+  const L = Math.max(...stack.map(b => b.l));
+  const W = Math.max(...stack.map(b => b.w));
+  const H = stack.reduce((s, b) => s + b.h, 0);
+  const vw = 190, vh = 150, pad = 10;
+  const s = Math.min((vw - 2 * pad) / ((L + W) * c), (vh - 2 * pad) / ((L + W) * d + H));
+  const px = (x, y, z) => `${((x - y) * c * s).toFixed(1)},${((x + y) * d * s - z * s).toFixed(1)}`;
+  let z = 0;
+  const polys = [];
+  stack.forEach((b, i) => {
+    const col = ISO_COLORS[i % ISO_COLORS.length];
+    const z0 = z, z1 = z + b.h;
+    z = z1;
+    // left face (x=0), right face (y=0), then top — later boxes paint over
+    polys.push(`<polygon points="${px(0,0,z0)} ${px(0,b.w,z0)} ${px(0,b.w,z1)} ${px(0,0,z1)}" fill="${col[2]}" stroke="${col[3]}" stroke-width="1" stroke-linejoin="round"/>`);
+    polys.push(`<polygon points="${px(0,0,z0)} ${px(b.l,0,z0)} ${px(b.l,0,z1)} ${px(0,0,z1)}" fill="${col[1]}" stroke="${col[3]}" stroke-width="1" stroke-linejoin="round"/>`);
+    polys.push(`<polygon points="${px(0,0,z1)} ${px(b.l,0,z1)} ${px(b.l,b.w,z1)} ${px(0,b.w,z1)}" fill="${col[0]}" stroke="${col[3]}" stroke-width="1" stroke-linejoin="round"/>`);
+  });
+  const offX = pad + W * c * s, offY = pad + H * s;
+  return `<svg width="${vw}" height="${vh}" viewBox="0 0 ${vw} ${vh}" role="img" aria-label="装箱堆叠示意图"><g transform="translate(${offX.toFixed(1)},${offY.toFixed(1)})">${polys.join('')}</g></svg>`;
+}
+
 function renderResults(r) {
   if (!r || typeof r !== 'object') throw new Error('AI 返回数据格式错误，请重试');
   const rules    = r.airline_rules || {};
@@ -2644,9 +2701,9 @@ function renderResults(r) {
     const bagsHtml = bags.map(bag => {
       const cls = (bag.exceedsMax || bag.overweight) ? 'err' : bag.oversize ? 'warn' : 'ok';
       const statusText = bag.status || (bag.exceedsMax ? '超出最大限重' : bag.overweight ? '超重' : bag.oversize ? '超尺寸' : '合规');
-      const itemsHtml = (bag.items || []).map(it =>
+      const itemsHtml = (bag.items || []).map((it, i) =>
         `<div class="bag-item">
-          <span class="iname">${it.label || it.description || '—'}</span>
+          <span class="iname"><i class="idot" style="background:${ISO_COLORS[i % ISO_COLORS.length][1]};border:1px solid ${ISO_COLORS[i % ISO_COLORS.length][3]};"></i>${it.dims ? it.dims + ' cm' : (it.label || '—')}</span>
           <span class="iwgt">${it.weight_kg} kg</span>
         </div>`
       ).join('');
@@ -2656,6 +2713,7 @@ function renderResults(r) {
           <span class="bag-num">BAG #${String(bag.bag_no).padStart(2,'0')}</span>
           <span class="status-badge ${cls}">${statusText}</span>
         </div>
+        ${bag.stack && bag.stack.length ? `<div class="bag-iso">${isoSVG(bag.stack)}</div>` : ''}
         <div class="bag-items">${itemsHtml}</div>
         <div class="bag-stats">
           <div class="bag-stat">
