@@ -2117,7 +2117,7 @@ function buildLookupPrompt(airlineCode, airlineName, cabin, origin, destination)
   } else if (hasRoute) {
     zoneNote = `\nIMPORTANT: ${airlineCode}'s excess/overweight/oversize baggage fees are usually tiered by a fare-zone system based on the origin-destination country/region pair. You have live web_search and web_fetch tools — use them to find ${airlineCode}'s actual official baggage fee page and zone definitions for this SPECIFIC route (${origin} → ${destination}), rather than guessing from memory. Report what you found and searched for in notes.`;
   } else {
-    zoneNote = `\nNo route was given, so excess/overweight/oversize fees will necessarily be a rough cross-zone average — say so in notes and recommend the user provide 始发港/目的港 for an accurate zone-specific number.`;
+    zoneNote = `\nNo route was given, so the zone-specific excess/overweight/oversize fees cannot be determined. Set those fee fields to null (do NOT output a cross-zone average or any guess) and recommend in plain Chinese that the user fill in 始发港/目的港 to get accurate zone fees.`;
   }
 
   return `Look up ${airlineCode} (${airlineName}) checked-baggage policy for a standard (non-elite) passenger in ${cabin}. ${routeLine}
@@ -2133,10 +2133,12 @@ Provide:
 - length_limit_cm / width_limit_cm / height_limit_cm: individual per-dimension MAXIMUM caps if the airline states them instead of/alongside linear, else null
 - free_bags_per_pax: standard number of free checked bags per passenger in this cabin
 - max_bags_per_pax: the MAXIMUM total bags one passenger may check in, even paying excess fees. IMPORTANT: many airlines cap how many EXTRA pieces a passenger may PURCHASE beyond the free allowance (e.g. Cathay Pacific sells at most 3 extra pieces, so total = free + 3) — actively look for this published purchase cap on the airline's excess-baggage page and compute total = free + purchasable; if genuinely uncapped, use a sensible conservative number like 10. Mention the purchase cap in notes.
-- excess_bag_fee_usd: numeric USD fee per bag beyond the free allowance under the PIECE CONCEPT, for the SPECIFIC route/zone above if given (else a reasonable cross-zone average)
-- overweight_fee_usd: numeric USD surcharge for one overweight bag, for that same specific zone if given
-- oversize_fee_usd: numeric USD surcharge for one oversized bag, for that same specific zone if given
-- excess_bag_fee_text / overweight_fee_text / oversize_fee_text: short human-readable fee description for display, e.g. "USD 200/bag（往返第二/三区）"
+- excess_bag_fee_usd: numeric USD fee per bag beyond the free allowance under the PIECE CONCEPT, for the SPECIFIC route/zone above — ONLY the real number you actually confirmed from the airline's official source
+- overweight_fee_usd: numeric USD surcharge for one overweight bag, for that same specific zone — confirmed official number only
+- oversize_fee_usd: numeric USD surcharge for one oversized bag, for that same specific zone — confirmed official number only
+- excess_bag_fee_text / overweight_fee_text / oversize_fee_text: short human-readable fee description for display, e.g. "USD 200/bag（往返第二/三区）"; for any fee you set to null, use the exact string "未查到，请手动填写"
+
+CRITICAL — NO ESTIMATES: Do NOT output a guessed, remembered, averaged, or "typical/standard" fee. If, using your web tools, you cannot CONFIRM a fee's exact figure from the airline's official baggage page within your available tool calls, set that fee field to null (JSON null) and its *_text to "未查到，请手动填写". A null the user fills in themselves is far better than a fabricated number. This applies to excess_bag_fee_usd, overweight_fee_usd, oversize_fee_usd and the weight_concept fees alike. In notes, do NOT mention field names, JSON, true/false, or that anything "was set" — write only plain Chinese the end user understands.
 - weight_concept_available: true if this airline/cabin also offers (or the route may qualify for) the WEIGHT CONCEPT baggage system (a single total kg allowance per passenger, excess billed per kg over — common on many non-North-America routes), false if only the piece concept applies
 - weight_concept_allowance_kg: total free checked-baggage weight allowance per passenger under the weight concept, null if weight_concept_available is false
 - weight_concept_excess_fee_usd_per_kg: your best numeric USD estimate per kg over that total allowance, null if not applicable
@@ -2538,6 +2540,15 @@ function assignAndPrice(pieces, rules, strategyLabel, totalBoxes) {
   if (oversizeCount) details.push(`${oversizeCount} 件超尺寸，按 ${rules.oversize_fee_text || rules.oversize_fee_usd + ' USD/件'} 收取`);
   if (exceedsMaxCount) details.unshift(`⚠ ${exceedsMaxCount} 件超过航司硬上限（${hardKg}kg / ${hardLinear}cm），柜台可能拒收，需拆分或走货运，费用估算仅按超重费粗略计`);
 
+  // A triggered fee whose rate wasn't found (null) was counted as USD 0 above,
+  // so the total is understated. Flag it loudly rather than pass a fake number
+  // off as real — the user must fill the rate in 人工调整 and 重新计算.
+  const missing = [];
+  if (excessBags     && !(rules.excess_bag_fee_usd     > 0)) missing.push('超件');
+  if (overweightCount && !(rules.overweight_fee_usd    > 0)) missing.push('超重');
+  if (oversizeCount  && !(rules.oversize_fee_usd       > 0)) missing.push('超尺寸');
+  if (missing.length) details.unshift(`⚠ ${missing.join('、')}费率未查到，已暂按 USD 0 计（费用被低估）——请在下方费率框填入官网实际数值后点「重新计算」`);
+
   return {
     strategy_label: strategyLabel,
     couriers,
@@ -2717,6 +2728,18 @@ async function calculate() {
     } else {
       rules.max_bags_per_pax = rules.max_bags_per_pax > 0 ? rules.max_bags_per_pax : 0;
     }
+
+    // Strip developer/JSON jargon that occasionally leaks into notes for ANY
+    // airline (e.g. "weight_concept_available设为false") — end users shouldn't
+    // see field names, JSON, or true/false.
+    if (rules.notes) {
+      rules.notes = rules.notes
+        .split(/[；;。]/)
+        .filter(seg => seg && !/_fee_usd|_usd|_available|_concept|weight_concept|字段|json|设为|置为|标记为|true|false|null|布尔/i.test(seg))
+        .map(seg => seg.trim())
+        .filter(Boolean)
+        .join('；');
+    }
     rules.max_total_weight_kg = 0;
 
     const packed = packCouriers(items, rules);
@@ -2889,7 +2912,7 @@ function renderResults(r) {
   // amber = fee rates. 每人最多可托运件数 is deliberately NOT grouped with
   // these — it's rendered in its own separate box outside the strip.
   const editableInput = x =>
-    `<div class="rule-block"><span class="lbl">${x.l}</span>${x.prefix ? `<span class="lbl">${x.prefix}</span>` : ''}<input type="number" id="${x.id}" min="0" value="${x.v ?? ''}">${x.unit ? `<span class="lbl">${x.unit}</span>` : ''}</div>`;
+    `<div class="rule-block"><span class="lbl">${x.l}</span>${x.prefix ? `<span class="lbl">${x.prefix}</span>` : ''}<input type="number" id="${x.id}" min="0" value="${x.v ?? ''}"${x.placeholder ? ` placeholder="${x.placeholder}"` : ''}>${x.unit ? `<span class="lbl">${x.unit}</span>` : ''}</div>`;
   const staticBlock = x =>
     `<div class="rule-block"><span class="lbl">${x.l}</span><span class="val">${x.v}</span></div>`;
   const group = (groupClass, html) => `<div class="rule-group ${groupClass}">${html}</div>`;
@@ -2911,9 +2934,9 @@ function renderResults(r) {
   // excess depending on origin-destination zone pair) — AI's single guess
   // can't know your actual zone, so these are editable like everything else.
   const feeGroup = [
-    { id: 'rule-excess-fee',     v: rules.excess_bag_fee_usd,   l: '超件',  prefix: 'USD', unit: '/件' },
-    { id: 'rule-overweight-fee', v: rules.overweight_fee_usd,   l: '超重',  prefix: 'USD', unit: '/件' },
-    { id: 'rule-oversize-fee',   v: rules.oversize_fee_usd,     l: '超尺寸', prefix: 'USD', unit: '/件' },
+    { id: 'rule-excess-fee',     v: rules.excess_bag_fee_usd,   l: '超件',  prefix: 'USD', unit: '/件', placeholder: '未查到' },
+    { id: 'rule-overweight-fee', v: rules.overweight_fee_usd,   l: '超重',  prefix: 'USD', unit: '/件', placeholder: '未查到' },
+    { id: 'rule-oversize-fee',   v: rules.oversize_fee_usd,     l: '超尺寸', prefix: 'USD', unit: '/件', placeholder: '未查到' },
   ];
 
   const renderGroup = items => items.map(x => x.static ? staticBlock(x) : editableInput(x)).join('');

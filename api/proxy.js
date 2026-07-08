@@ -125,8 +125,12 @@ export default async function handler(req, res) {
     anthropicReq.tools = body.fetchOnly
       ? [{ type: 'web_fetch_20260209', name: 'web_fetch', max_uses: 2, max_content_tokens: 6000 }]
       : [
-          { type: 'web_search_20260209', name: 'web_search', max_uses: 2 },
-          { type: 'web_fetch_20260209', name: 'web_fetch', max_uses: 2, max_content_tokens: 10000 },
+          // Non-hardcoded airlines rely entirely on this live lookup; 2 uses
+          // often ran out on multi-page zone fee tables, forcing a guessed
+          // estimate. 4 each lets the verification finish. A fresh lookup then
+          // caches for 30 days, so the extra cost is one-time per route.
+          { type: 'web_search_20260209', name: 'web_search', max_uses: 4 },
+          { type: 'web_fetch_20260209', name: 'web_fetch', max_uses: 4, max_content_tokens: 10000 },
         ];
   }
 
