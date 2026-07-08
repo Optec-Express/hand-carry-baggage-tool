@@ -2115,7 +2115,10 @@ function buildLookupPrompt(airlineCode, airlineName, cabin, origin, destination)
   if (hasRoute && airlineCode === 'CX') {
     zoneNote = `\nBelow are Cathay Pacific's ACTUAL published zone definitions. Determine which country each of ${origin} and ${destination} is in, then resolve each to a zone using ONLY the list below (do NOT search or guess zone membership — the list is authoritative).\n\n${CX_ZONE_FEE_TABLE}\n\nIn addition to the JSON keys listed later, you MUST include two extra keys: "origin_zone" and "dest_zone", each EXACTLY one of "香港"/"第一区"/"第二区"/"第三区"/"第四区"/"第五区"/"第六区". The zone-pair excess and overweight fees are then looked up from the official table by our code — whatever you put in excess_bag_fee_usd / overweight_fee_usd will be OVERRIDDEN, so don't agonize over them. State both zones in notes too, e.g. "HKG=香港，NRT(日本)=第一区".\n\nFor oversize_fee_usd: use your web_fetch tool to fetch and READ Cathay Pacific's official excess-baggage charges page at https://www.cathaypacific.com/cx/sc_CN/baggage/extra-baggage-charges/pay-cash-or-by-credit-card.html — it states the per-piece fee for oversized baggage (总尺寸 158–203cm). Use EXACTLY the number published on that page, not a guess from memory or search snippets.\n\nFor the weight_concept_* fields: check CX's official pages for whether a WEIGHT-based allowance system (total kg per passenger, excess billed per kg) applies to this route/fare — fill in the real allowance and per-kg fee if it exists, set weight_concept_available false only if CX genuinely doesn't offer it here. Do NOT invent a per-kg fee.`;
   } else if (hasRoute) {
-    zoneNote = `\nIMPORTANT: ${airlineCode}'s excess/overweight/oversize baggage fees are usually tiered by a fare-zone system based on the origin-destination country/region pair. You have live web_search and web_fetch tools — use them to find ${airlineCode}'s actual official baggage fee page and zone definitions for this SPECIFIC route (${origin} → ${destination}), rather than guessing from memory. Report what you found and searched for in notes.`;
+    const feeUrl = BAGGAGE_LINKS[airlineCode];
+    zoneNote = feeUrl
+      ? `\nIMPORTANT: ${airlineCode}'s excess/overweight/oversize fees are tiered by a fare-zone system based on the origin-destination country/region pair. Use your web_fetch tool to fetch ${airlineCode}'s official baggage page DIRECTLY: ${feeUrl} — read it; if the excess/overweight/oversize fee table or the zone definitions sit on a sub-page it links to, follow that ONE link and fetch it too. Then extract the fees for this SPECIFIC route (${origin} → ${destination}). Do NOT web_search and do NOT guess from memory — if the exact figures aren't on that page or its linked fee page, set the fee fields to null (未查到). Report the zone you used in notes, in plain Chinese.`
+      : `\nIMPORTANT: ${airlineCode}'s excess/overweight/oversize baggage fees are usually tiered by a fare-zone system. Use your web_search and web_fetch tools to find ${airlineCode}'s official baggage fee page and zone definitions for this SPECIFIC route (${origin} → ${destination}); confirm the actual figures from the official source, never guess. If you can't confirm, set the fee fields to null.`;
   } else {
     zoneNote = `\nNo route was given, so the zone-specific excess/overweight/oversize fees cannot be determined. Set those fee fields to null (do NOT output a cross-zone average or any guess) and recommend in plain Chinese that the user fill in 始发港/目的港 to get accurate zone fees.`;
   }
@@ -2653,7 +2656,11 @@ async function calculate() {
           // CX zones/fees live in local tables; the AI only verifies a few
           // facts against the official page whose URL is in the prompt, so
           // web search is dead weight — fetch-only costs a fraction.
-          fetchOnly: airlineCode === 'CX',
+          // Any airline with a known official URL → fetch that page directly
+          // and skip the expensive web_search rounds (all 24 dropdown airlines
+          // have a URL in BAGGAGE_LINKS). Search stays only as a fallback for
+          // an airline we have no URL for.
+          fetchOnly: !!BAGGAGE_LINKS[airlineCode],
           // Shared company-wide cache key on the proxy side (Upstash Redis) —
           // one paid lookup serves every machine for the TTL window.
           cacheKey: `v2:${airlineCode}|${cabin}|${origin}|${destination}`,

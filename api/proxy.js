@@ -123,7 +123,11 @@ export default async function handler(req, res) {
     // URL is given in the prompt, so searching adds nothing — fetch-only with
     // a tighter page cap costs a fraction and skips exploratory rounds.
     anthropicReq.tools = body.fetchOnly
-      ? [{ type: 'web_fetch_20260209', name: 'web_fetch', max_uses: 2, max_content_tokens: 6000 }]
+      // Direct-fetch mode: the prompt hands over the exact official URL, so no
+      // search is needed. 3 fetches covers a landing page → one fee sub-page
+      // hop; 8000 tokens/page fits a fee table without swallowing the whole
+      // site. Far cheaper than the search+fetch path below.
+      ? [{ type: 'web_fetch_20260209', name: 'web_fetch', max_uses: 3, max_content_tokens: 8000 }]
       : [
           // Non-hardcoded airlines rely entirely on this live lookup; 2 uses
           // often ran out on multi-page zone fee tables, forcing a guessed
