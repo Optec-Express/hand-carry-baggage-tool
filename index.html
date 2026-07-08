@@ -760,8 +760,16 @@ body {
 .strategy-table th:first-child, .strategy-table td:first-child {
   text-align: left;
   padding-left: 0;
+  white-space: normal;
 }
 .strategy-table td:first-child { color: var(--text-2); }
+.strategy-desc {
+  font-size: 11px;
+  color: var(--text-3);
+  font-weight: 400;
+  margin-top: 2px;
+  line-height: 1.5;
+}
 .strategy-table td.num, .strategy-table td.fee { font-family: var(--mono); font-weight: 600; color: var(--text); }
 .strategy-table td.fee.low { color: var(--ok); }
 .strategy-table tr.picked td { background: var(--surface); }
@@ -2092,28 +2100,19 @@ function packCouriers(items, rules) {
   runs.push(packHybrid(boxes, rules));
   runs.push(packCarve(boxes, rules));
 
-  // Keep only plans worth choosing: per headcount the cheapest one, and a
-  // plan with MORE couriers must also cost LESS in fees than every smaller
-  // crew — otherwise it's dominated and just noise in the table.
+  // All strategies are shown (user preference — no hiding); the pick rule
+  // stays fewest couriers first, then lowest baggage fees.
   const ranked = runs.slice().sort((a, b) =>
     a.cost.total_couriers - b.cost.total_couriers || a.cost.total_usd - b.cost.total_usd);
-  const pareto = [];
-  for (const r of ranked) {
-    const last = pareto[pareto.length - 1];
-    if (!last) { pareto.push(r); continue; }
-    if (r.cost.total_couriers === last.cost.total_couriers) continue;
-    if (r.cost.total_usd < last.cost.total_usd) pareto.push(r);
-  }
-
-  const best = pareto[0]; // fewest couriers, cheapest at that headcount
-  best.cost.strategy_comparison = pareto.map(r => ({
+  const best = ranked[0];
+  best.cost.strategy_comparison = ranked.map(r => ({
     label: r.strategy_label,
     couriers: r.cost.total_couriers,
     bags: r.cost.total_bags,
     usd: r.cost.total_usd,
     chosen: r === best,
     extra_people: r.cost.total_couriers - best.cost.total_couriers,
-    saves_usd: best.cost.total_usd - r.cost.total_usd,
+    fee_delta: r.cost.total_usd - best.cost.total_usd,  // vs the pick: minus = cheaper
   }));
   best.summary = `【打包策略：${best.strategy_label}】` + best.summary;
   return best;
@@ -2738,21 +2737,37 @@ function renderResults(r) {
   // was evaluated, with the auto-selected one highlighted.
   const stratEl = document.getElementById('cost-strategies');
   if (cost.strategy_comparison && cost.strategy_comparison.length) {
+    const STRATEGY_DESCS = {
+      '不合并，逐箱直发': '零打包操作，单件最轻便，柜台风险最低',
+      '全拼免费小件': '全部合规免罚金，行李费通常最省，但件数和人数最多',
+      '拼重不拼大（不超尺）': '压重量但不超尺寸，避开最贵的超尺费，适合扁平箱型',
+      '全拼大件': '件数和人数压到最少，代价是件件交超重+超尺费',
+      '免费额度装小件，其余拼大件': '先占满免费名额再拼大件，费用与人数的平衡型',
+      '大件为主，抠出免费小件': '人数锁定最少，在此前提下抠回免费额度省费',
+    };
+    const cmpCell = s => {
+      if (s.chosen) return '✓ 推荐';
+      const people = s.extra_people > 0 ? `多派 ${s.extra_people} 人` : '同人数';
+      const fee = s.fee_delta < 0
+        ? `<span style="color:var(--ok);font-weight:600;">省 $${(-s.fee_delta).toLocaleString()}</span>`
+        : s.fee_delta > 0 ? `贵 $${s.fee_delta.toLocaleString()}` : '费用相同';
+      return `<span style="color:var(--text-2);">${people}</span> ${fee}`;
+    };
     stratEl.innerHTML = `
-      <div class="strategy-hd">打包方案对比</div>
-      <div class="strategy-sub">已采用人数最少的方案；下方是"多派人换省钱"的备选</div>
+      <div class="strategy-hd">打包方案对比（全部 ${cost.strategy_comparison.length} 种策略）</div>
+      <div class="strategy-sub">推荐规则：人数最少，同人数取行李费最低；"省/贵"均相对推荐方案</div>
       <table class="strategy-table">
         <tr><th>打包方式</th><th>飞人</th><th>行李</th><th>行李费</th><th>对比</th></tr>
         ${cost.strategy_comparison.map(s => `
         <tr class="${s.chosen ? 'picked' : ''}">
-          <td>${s.chosen ? '✓ ' : ''}${s.label}</td>
+          <td>${s.chosen ? '✓ ' : ''}${s.label}<div class="strategy-desc">${STRATEGY_DESCS[s.label] || ''}</div></td>
           <td class="num">${s.couriers} 人</td>
           <td class="num">${s.bags} 件</td>
           <td class="fee">USD ${s.usd.toLocaleString()}</td>
-          <td>${s.chosen ? '已采用' : `<span style="color:var(--text-2);">多派 ${s.extra_people} 人</span> <span style="color:var(--ok);font-weight:600;">省 $${s.saves_usd.toLocaleString()}</span>`}</td>
+          <td>${cmpCell(s)}</td>
         </tr>`).join('')}
       </table>
-      <div class="strategy-note">"省"的是超额行李费；多派人要另付机票和人工（工具未计入），两相权衡后自行决定。想按某个备选执行，把「每人最多可托运」调小后点重新计算。</div>`;
+      <div class="strategy-note">多派人要另付机票和人工（工具未计入），两相权衡后自行决定。想按某个备选执行，把「每人最多可托运」调小后点重新计算。</div>`;
     stratEl.style.display = '';
   } else {
     stratEl.innerHTML = '';
