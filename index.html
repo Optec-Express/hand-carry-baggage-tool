@@ -1212,6 +1212,7 @@ body {
             <tbody id="ocr-result-body"></tbody>
           </table>
         </div>
+        <div class="cargo-summary" id="ocr-summary">合计：<b>0</b> 件 · <b>0.00</b> kg</div>
         <div style="display:flex; gap:10px; margin-top:12px; align-items:center; flex-wrap:wrap;">
           <button class="btn-solid" onclick="importOcrItems()">导入至货物清单 →</button>
           <button class="add-row" onclick="addOcrRow()" style="width:auto; padding:7px 16px;">＋ 手动添加行</button>
@@ -1897,6 +1898,20 @@ function renderOcrResult(items, notes, confidence) {
   // Result table — editable
   document.getElementById('ocr-result-body').innerHTML = items.map((it, i) => ocrRowHTML(i, it)).join('');
   document.getElementById('ocr-result-area').style.display = '';
+  updateOcrSummary();
+}
+
+// Total pieces & weight across the editable OCR table (recomputed on edits)
+function updateOcrSummary() {
+  let qty = 0, kg = 0;
+  document.querySelectorAll('#ocr-result-body tr').forEach(tr => {
+    const q = parseInt(tr.querySelector('.ocr-q')?.value) || 0;
+    const w = parseFloat(tr.querySelector('.ocr-kg')?.value) || 0;
+    qty += q;
+    kg += q * w;
+  });
+  const el = document.getElementById('ocr-summary');
+  if (el) el.innerHTML = `合计：<b>${qty}</b> 件 · <b>${kg.toFixed(2)}</b> kg`;
 }
 
 function ocrRowHTML(i, it = {}) {
@@ -1906,9 +1921,9 @@ function ocrRowHTML(i, it = {}) {
     <td><input type="number" class="ocr-l" value="${it.l ?? ''}" placeholder="长" min="1" style="min-width:58px;"></td>
     <td><input type="number" class="ocr-w" value="${it.w ?? ''}" placeholder="宽" min="1" style="min-width:58px;"></td>
     <td><input type="number" class="ocr-h" value="${it.h ?? ''}" placeholder="高" min="1" style="min-width:58px;"></td>
-    <td><input type="number" class="ocr-kg" value="${it.kg ?? ''}" placeholder="重量" min="0.01" step="0.01" style="min-width:68px;"></td>
-    <td><input type="number" class="ocr-q" value="${it.q ?? 1}" placeholder="1" min="1" style="min-width:50px;"></td>
-    <td><button class="del-btn" onclick="this.closest('tr').remove(); renumberOcr()">✕</button></td>
+    <td><input type="number" class="ocr-kg" value="${it.kg ?? ''}" placeholder="重量" min="0.01" step="0.01" style="min-width:68px;" oninput="updateOcrSummary()"></td>
+    <td><input type="number" class="ocr-q" value="${it.q ?? 1}" placeholder="1" min="1" style="min-width:50px;" oninput="updateOcrSummary()"></td>
+    <td><button class="del-btn" onclick="this.closest('tr').remove(); renumberOcr(); updateOcrSummary()">✕</button></td>
   </tr>`;
 }
 
@@ -1916,6 +1931,7 @@ function addOcrRow() {
   const tbody = document.getElementById('ocr-result-body');
   const count = tbody.querySelectorAll('tr').length;
   tbody.insertAdjacentHTML('beforeend', ocrRowHTML(count));
+  updateOcrSummary();
 }
 
 function renumberOcr() {
