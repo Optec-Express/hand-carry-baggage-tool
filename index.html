@@ -647,9 +647,16 @@ body {
 .bag-iso {
   display: flex;
   justify-content: center;
-  margin: 2px 0 8px;
+  margin: 2px 0 0;
 }
 .bag-iso svg { display: block; }
+.bag-iso-cap {
+  text-align: center;
+  font-size: 11px;
+  color: var(--text-3);
+  line-height: 1.5;
+  margin: 2px 0 8px;
+}
 
 .bag-item .idot {
   width: 9px;
@@ -2222,8 +2229,11 @@ function bundlesToPieces(bundles, rules) {
   const standardLinearCm = rules.standard_linear_cm || 158;  // free-tier size; beyond it the oversize FEE applies
   return bundles.map(bd => {
     const linear = bd.L + bd.W + bd.H;
+    // physical stacking order: biggest footprint (then heaviest) at the
+    // bottom — envelope dims and fees don't depend on the order
+    const boxes = bd.boxes.slice().sort((a, b) => b.s0 * b.s1 - a.s0 * a.s1 || b.kg - a.kg);
     return {
-      boxes: bd.boxes, l: bd.L, w: bd.W, h: bd.H, kg: bd.kg, linear,
+      boxes, l: bd.L, w: bd.W, h: bd.H, kg: bd.kg, linear,
       overweight: bd.kg > standardWeightKg,
       oversize: linear > standardLinearCm,
       // only a single box that alone breaks a hard cap can end up here
@@ -2646,10 +2656,17 @@ function isoSVG(stack) {
   parts.push(`<text transform="translate(${(mW.X - 9).toFixed(1)},${(mW.Y + 12).toFixed(1)}) rotate(-30)" text-anchor="middle" font-size="10" fill="#475569">宽 ${W}</text>`);
   parts.push(`<text x="${(mH.X - 5).toFixed(1)}" y="${(mH.Y + 3).toFixed(1)}" text-anchor="end" font-size="10" fill="#475569">高 ${hTxt}</text>`);
   const bottomY = oy + (L + W) * d * s;
-  const vw = Math.max(padL + (L + W) * c * s + 42, 224);
-  const vh = bottomY + 36;
-  parts.push(`<text x="${(vw / 2).toFixed(1)}" y="${(bottomY + 28).toFixed(1)}" text-anchor="middle" font-size="10" fill="#64748B">打包外廓 ${L}×${W}×${hTxt} cm · ①在底层，依次向上码放</text>`);
+  const vw = padL + (L + W) * c * s + 44;
+  const vh = bottomY + 18;
   return `<svg width="${vw.toFixed(0)}" height="${vh.toFixed(0)}" viewBox="0 0 ${vw.toFixed(0)} ${vh.toFixed(0)}" role="img" aria-label="打包三维示意图">${parts.join('')}</svg>`;
+}
+
+// Caption rendered as HTML under the diagram so it wraps instead of clipping
+function stackCaption(stack) {
+  const L = Math.max(...stack.map(b => b.l));
+  const W = Math.max(...stack.map(b => b.w));
+  const H = Math.round(stack.reduce((s, b) => s + b.h, 0) * 10) / 10;
+  return `打包外廓 ${L}×${W}×${H} cm（长×宽×高）· ①在底层，依次向上码放`;
 }
 
 function renderResults(r) {
@@ -2745,7 +2762,7 @@ function renderResults(r) {
           <span class="bag-num">BAG #${String(bag.bag_no).padStart(2,'0')}</span>
           <span class="status-badge ${cls}">${statusText}</span>
         </div>
-        ${bag.stack && bag.stack.length ? `<div class="bag-iso">${isoSVG(bag.stack)}</div>` : ''}
+        ${bag.stack && bag.stack.length ? `<div class="bag-iso">${isoSVG(bag.stack)}</div><div class="bag-iso-cap">${stackCaption(bag.stack)}</div>` : ''}
         <div class="bag-items">${itemsHtml}</div>
         <div class="bag-stats">
           <div class="bag-stat">
