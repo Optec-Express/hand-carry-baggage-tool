@@ -21,7 +21,7 @@ const SYSTEM = 'You are a baggage-policy lookup assistant. When asked for data, 
 // Company-wide shared cache in Upstash Redis (Vercel marketplace store) via
 // its REST API — no npm dependency. Returns undefined when the store isn't
 // configured or errors, so the tool degrades to uncached lookups, never fails.
-const RULES_TTL_SECONDS = 14 * 24 * 3600; // biweekly re-check of airline policy
+const RULES_TTL_SECONDS = 30 * 24 * 3600; // fee tables change on a yearly cadence; monthly re-check is plenty
 
 async function kvCmd(cmd) {
   const url = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;

@@ -2441,15 +2441,13 @@ async function calculate() {
   document.getElementById('calc-btn').disabled = true;
 
   try {
-    // Airline policy for a given airline/cabin/route is near-static — cache
-    // each successful lookup locally so repeat calculations don't burn API
-    // tokens; expiry (2 weeks, per user's call) doubles as the periodic
-    // "check the airline for updates" pass.
+    // Airline fee tables change on a yearly cadence (announced in advance),
+    // so cached rules live 30 days.
     // v2: CX weight-concept lookup enabled. (The CX oversize fee is pinned in
     // cxApplyZoneFees AFTER cache retrieval, so bad cached values get
     // corrected without invalidating the cache.)
     const cacheKey = `rules-cache:v2:${airlineCode}|${cabin}|${origin}|${destination}`;
-    const RULES_CACHE_TTL_MS = 14 * 24 * 3600 * 1000;
+    const RULES_CACHE_TTL_MS = 30 * 24 * 3600 * 1000;
     let rules = null;
     try {
       const c = JSON.parse(localStorage.getItem(cacheKey));
