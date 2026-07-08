@@ -2619,9 +2619,9 @@ function renderResults(r) {
   // first AI lookup (calculate() forces that), but after the user edits one and
   // hits 重新计算, the real value they set is echoed back instead of reverting.
   document.getElementById('rules-maxbags').innerHTML =
-    `<div class="section-hd" style="margin:14px 0 8px;">人工调整</div>`
-    + `<div class="rule-block maxbags-block"><span class="lbl">每人最多可托运（人工核实）</span><input type="number" id="rule-maxbags" min="0" value="${rules.max_bags_per_pax ?? 0}"><span class="lbl">件</span></div>`
-    + `<div class="rule-block maxbags-block"><span class="lbl">每人最多限重（人工核实）</span><input type="number" id="rule-max-total-weight" min="0" value="${rules.max_total_weight_kg ?? 0}"><span class="lbl">kg</span></div>`;
+    `<div class="section-hd" style="margin:14px 0 8px; width:100%;">人工调整</div>`
+    + `<div class="rule-block maxbags-block"><span class="lbl">每人最多可托运</span><input type="number" id="rule-maxbags" min="0" value="${rules.max_bags_per_pax ?? 0}"><span class="lbl">件</span></div>`
+    + `<div class="rule-block maxbags-block"><span class="lbl">每人最多限重</span><input type="number" id="rule-max-total-weight" min="0" value="${rules.max_total_weight_kg ?? 0}"><span class="lbl">kg</span></div>`;
 
   const noteEl = document.getElementById('rules-note');
   noteEl.innerHTML = '';
