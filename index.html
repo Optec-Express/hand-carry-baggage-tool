@@ -2678,8 +2678,9 @@ function setQuoteMode(mode) {
   document.getElementById('mode-multi').classList.toggle('on', !single);
   document.getElementById('mode-single').setAttribute('aria-selected', single);
   document.getElementById('mode-multi').setAttribute('aria-selected', !single);
-  // Single-airline fields (airline/cabin/free/weight) vs the multi-airline list.
-  ['field-airline', 'field-cabin', 'field-free', 'field-weight'].forEach(id =>
+  // Airline + cabin move into the per-row list in multi mode; 免费件数 / 机票含kg
+  // stay visible as shared overrides applied to every airline in the list.
+  ['field-airline', 'field-cabin'].forEach(id =>
     document.getElementById(id).style.display = single ? '' : 'none');
   document.getElementById('multi-airline-block').style.display = single ? 'none' : '';
   document.getElementById('multi-leg-card').style.display = 'none';
@@ -2954,7 +2955,8 @@ async function multiCalculate() {
   if (list.some(r => !r.tickets)) { showErr('每家航司都要填「机票数」（本航班可用飞人数）'); return; }
   const origin = document.getElementById('inp-origin').value.trim();
   const destination = document.getElementById('inp-destination').value.trim();
-  const autoAllowance = { free: 'auto', weight: 'auto' };
+  // Shared 免费件数 / 机票含kg overrides apply to every airline in the list.
+  const allowance = getCourierAllowance();
 
   document.getElementById('results').style.display = 'none';
   document.getElementById('err-box').style.display = 'none';
@@ -2969,7 +2971,7 @@ async function multiCalculate() {
       if (!remaining.length) break; // everything already placed on earlier airlines
       const r = list[i];
       document.getElementById('loading-airline').textContent = `${r.code} ${r.name}（第 ${i + 1}/${list.length} 家）`;
-      const rules = await lookupRules(r.code, r.name, r.cabin, origin, destination, autoAllowance);
+      const rules = await lookupRules(r.code, r.name, r.cabin, origin, destination, allowance);
       const { result, leftoverItems } = packCapped(remaining, rules, r.tickets);
       legs.push({
         code: r.code, name: r.name, cabin: r.cabin, tickets: r.tickets,
