@@ -3207,11 +3207,9 @@ function renderResults(r) {
     + `<div class="rule-block maxbags-block"><span class="lbl">每人最多可托运</span><input type="number" id="rule-maxbags" min="0" value="${rules.max_bags_per_pax ?? 0}"><span class="lbl">件</span></div>`
     + `<div class="rule-block maxbags-block"><span class="lbl">每人最多限重</span><input type="number" id="rule-max-total-weight" min="0" value="${rules.max_total_weight_kg || ''}" placeholder="默认150"><span class="lbl">kg</span></div>`;
 
-  const noteEl = document.getElementById('rules-note');
-  noteEl.innerHTML = '';
-  if (rules.notes) {
-    noteEl.innerHTML = `<div class="rule-note">📌 ${rules.notes}</div>`;
-  }
+  // The airline note now lives in the 费用估算 card's right column (see below),
+  // so keep this slot in the rules card empty.
+  document.getElementById('rules-note').innerHTML = '';
 
   // Summary banner removed per user preference — the strategy table and fee
   // breakdown already carry all of its information.
@@ -3315,10 +3313,15 @@ function renderResults(r) {
 
   // Strategy comparison table in the right column: every packing plan that
   // was evaluated, with the auto-selected one highlighted.
-  // 打包方案对比面板已按用户要求移除。
+  // 打包方案对比面板已移除；右侧空栏改放航司规则备注。
   const stratEl = document.getElementById('cost-strategies');
-  stratEl.innerHTML = '';
-  stratEl.style.display = 'none';
+  if (rules.notes) {
+    stratEl.innerHTML = `<div class="rule-note" style="margin:0;">📌 ${rules.notes}</div>`;
+    stratEl.style.display = '';
+  } else {
+    stratEl.innerHTML = '';
+    stratEl.style.display = 'none';
+  }
 
   document.getElementById('cost-disclaimer').textContent = `⚠ ${cost.disclaimer || '费用仅供参考，以航司实际收取为准'}`;
 
