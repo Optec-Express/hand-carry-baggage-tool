@@ -1171,20 +1171,11 @@ body {
 
     <!-- Multi-airline list (shown only in 多航司分段 mode) -->
     <div id="multi-airline-block" style="display:none; margin-top:16px;">
-      <div class="section-hd" style="margin-bottom:10px;">航司列表 · 按顺序装（航司① 先用满它的机票，装不下的顺延到航司②…）</div>
+      <div class="section-hd" style="margin-bottom:10px;">航司列表</div>
       <div id="airline-list"></div>
       <button type="button" class="add-airline" onclick="addAirlineRow()">➕ 增加航司</button>
       <p class="paste-hint" style="margin-top:12px; margin-bottom:0;">
         填好每家航司、舱位和各自可用机票数，点下方按钮，直接告诉你这批货能否全部装完。始发港 / 目的港所有航司共用。
-      </p>
-    </div>
-
-    <div id="single-hints">
-      <p class="paste-hint" style="margin-top:6px; margin-bottom:0;">
-        请填写目标机票包含的免费件数及重量
-      </p>
-      <p class="paste-hint" style="margin-top:6px; margin-bottom:0;">
-        始发港、目的港的填写为更好判断不同区域的收费标准，计算更准确
       </p>
     </div>
   </div>
@@ -2693,7 +2684,6 @@ function setQuoteMode(mode) {
   ['field-airline', 'field-cabin', 'field-free', 'field-weight'].forEach(id =>
     document.getElementById(id).style.display = single ? '' : 'none');
   document.getElementById('multi-airline-block').style.display = single ? 'none' : '';
-  document.getElementById('single-hints').style.display = single ? '' : 'none';
   document.getElementById('multi-leg-card').style.display = 'none';
   if (!single && !airlineRows.length) { addAirlineRow(); addAirlineRow(); }
   document.getElementById('calc-btn').textContent = single
