@@ -1021,6 +1021,9 @@ body {
 .mleg { display:grid; grid-template-columns:26px 1fr auto; align-items:center; gap:14px;
   padding:13px 2px; }
 .mleg + .mleg { border-top:1px dashed var(--border); }
+.mleg.clickable { cursor:pointer; border-radius:8px; transition:background .12s; padding-left:8px; padding-right:8px; }
+.mleg.clickable:hover { background:var(--accent-l); }
+.mleg .ar-see { font-size:11.5px; font-weight:600; color:var(--accent); margin-left:6px; }
 .mleg .dot { width:26px; height:26px; border-radius:50%; display:grid; place-items:center;
   font-size:12px; font-weight:700; background:var(--accent-l); color:var(--accent);
   border:1px solid var(--border); }
@@ -1388,6 +1391,7 @@ let importedTotalWeightKg = null;
 let quoteMode = 'single';
 let airlineRows = [];     // ids of the airline rows in the multi-airline list
 let nextAirlineId = 1;
+let lastMultiLegs = [];   // last multi-airline result, per leg (for click-to-detail)
 let lastCalc = null; // { items, rules, allowance } — lets recalc() rerun packCouriers() without a new AI call
 let lastRender = null; // last rendered result payload — feeds 复制打包方案
 
@@ -2772,9 +2776,21 @@ function packCapped(items, rules, cap) {
   return { result: packCouriers(keptItems, rules), leftoverItems };
 }
 
+// Click a leg row → render that airline's full detail (rules, per-courier 3D
+// packing, cost breakdown) in the normal results area below.
+function showLegDetail(i) {
+  const lg = lastMultiLegs[i];
+  if (!lg || !lg.result) return;
+  renderResults({ airline_rules: lg.rules, ...lg.result });
+  document.getElementById('results').style.display = 'block';
+  toast(`已展开 ${lg.code} · ${lg.name} 的详细方案`);
+  document.getElementById('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
 function clearMultiLeg() {
   document.getElementById('airline-list').innerHTML = '';
   airlineRows = [];
+  lastMultiLegs = [];
   addAirlineRow(); addAirlineRow();
   document.getElementById('multi-leg-card').style.display = 'none';
   document.getElementById('results').style.display = 'none';
@@ -2784,13 +2800,14 @@ function clearMultiLeg() {
 // Render the multi-airline verdict: per-airline usage + grand total + a clear
 // "全部装完 / 装不下" answer.
 function renderMultiSummary(legs, leftoverItems) {
+  lastMultiLegs = legs; // kept so a row click can render that leg's full detail
   const card = document.getElementById('multi-leg-card');
   card.style.display = '';
   const rowsHtml = legs.map((lg, i) => `
-    <div class="mleg done">
+    <div class="mleg done clickable" onclick="showLegDetail(${i})" title="点击查看该航司的详细打包与费用">
       <div class="dot">${i + 1}</div>
       <div>
-        <div class="who">${lg.code} · ${lg.name}</div>
+        <div class="who">${lg.code} · ${lg.name} <span class="ar-see">查看详细 ›</span></div>
         <div class="sub">${lg.cabin} · 用 ${lg.usedCouriers}/${lg.tickets} 张机票 · 承运 ${lg.bags} 件行李</div>
       </div>
       <div class="amt"><div class="ppl">${lg.usedCouriers} 人</div><div class="usd">${lg.usd == null ? '费率未查到' : 'USD ' + lg.usd.toLocaleString()}</div></div>
@@ -2984,6 +3001,7 @@ async function multiCalculate() {
       legs.push({
         code: r.code, name: r.name, cabin: r.cabin, tickets: r.tickets,
         usedCouriers: result.cost.total_couriers, bags: result.cost.total_bags, usd: result.cost.total_usd,
+        result, rules, // kept so the row can render full detail on click
       });
       remaining = leftoverItems;
     }
