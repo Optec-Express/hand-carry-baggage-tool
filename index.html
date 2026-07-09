@@ -2859,7 +2859,10 @@ async function lookupRules(airlineCode, airlineName, cabin, origin, destination,
         signal: ctrl.signal,
         headers: { 'Content-Type': 'application/json', 'anthropic-version': '2023-06-01' },
         body: JSON.stringify({
-          task: 'lookup', max_tokens: 4000, needsSearch,
+          // 8000 (not 4000): fetch-heavy lookups spend output tokens on tool
+          // use + reasoning before emitting the JSON; 4000 sometimes ran out
+          // (stop_reason=max_tokens → empty result). JSON itself is tiny.
+          task: 'lookup', max_tokens: 8000, needsSearch,
           // Any airline with a known official URL → fetch that page directly,
           // skip the pricey web_search rounds. Search only as a fallback.
           fetchOnly: !!BAGGAGE_LINKS[airlineCode],
