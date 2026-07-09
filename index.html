@@ -1179,12 +1179,14 @@ body {
       </p>
     </div>
 
-    <p class="paste-hint" style="margin-top:6px; margin-bottom:0;">
-      请填写目标机票包含的免费件数及重量
-    </p>
-    <p class="paste-hint" style="margin-top:6px; margin-bottom:0;">
-      始发港、目的港的填写为更好判断不同区域的收费标准，计算更准确
-    </p>
+    <div id="single-hints">
+      <p class="paste-hint" style="margin-top:6px; margin-bottom:0;">
+        请填写目标机票包含的免费件数及重量
+      </p>
+      <p class="paste-hint" style="margin-top:6px; margin-bottom:0;">
+        始发港、目的港的填写为更好判断不同区域的收费标准，计算更准确
+      </p>
+    </div>
   </div>
 
   <!-- Cargo Input -->
@@ -2691,6 +2693,7 @@ function setQuoteMode(mode) {
   ['field-airline', 'field-cabin', 'field-free', 'field-weight'].forEach(id =>
     document.getElementById(id).style.display = single ? '' : 'none');
   document.getElementById('multi-airline-block').style.display = single ? 'none' : '';
+  document.getElementById('single-hints').style.display = single ? '' : 'none';
   document.getElementById('multi-leg-card').style.display = 'none';
   if (!single && !airlineRows.length) { addAirlineRow(); addAirlineRow(); }
   document.getElementById('calc-btn').textContent = single
@@ -3321,45 +3324,10 @@ function renderResults(r) {
 
   // Strategy comparison table in the right column: every packing plan that
   // was evaluated, with the auto-selected one highlighted.
+  // 打包方案对比面板已按用户要求移除。
   const stratEl = document.getElementById('cost-strategies');
-  if (cost.strategy_comparison && cost.strategy_comparison.length) {
-    // Sub-line = packing instructions (how to pack), not sales copy
-    const STRATEGY_DESCS = {
-      '散件直运': '不合并，每箱按原箱独立托运',
-      '标准件拼装': '全部拼成 ≤23kg 且三边和 ≤158cm 的标准行李',
-      '满重限尺拼装': '每件拼至 32kg 满重，外廓控制在 158cm 以内',
-      '满载拼装': '每件拼至 32kg / 203cm 双上限',
-      '免额优先混装': '免费名额装标准件，其余货物拼成满载大件',
-      '控人混装': '按最少人数配满载大件，空余免费名额回填标准件',
-    };
-    const cmpCell = s => {
-      if (s.chosen) return '✓ 推荐';
-      const people = s.extra_people > 0 ? `多派 ${s.extra_people} 人` : '同人数';
-      const fee = s.fee_delta < 0
-        ? `<span style="color:var(--ok);font-weight:600;">省 $${(-s.fee_delta).toLocaleString()}</span>`
-        : s.fee_delta > 0 ? `贵 $${s.fee_delta.toLocaleString()}` : '费用相同';
-      return `<span style="color:var(--text-2);">${people}</span> ${fee}`;
-    };
-    stratEl.innerHTML = `
-      <div class="strategy-hd">打包方案对比（全部 ${cost.strategy_comparison.length} 种策略）</div>
-      <div class="strategy-sub">推荐规则：人数最少，同人数取行李费最低；"省/贵"均相对推荐方案。当前限制：每人最多 ${rules.max_bags_per_pax || 10} 件${rules.airline_code === 'CX' ? `（免费 ${rules.free_bags_per_pax} 件 + 最多加购 3 件，国泰官方规定）` : `（免费 ${rules.free_bags_per_pax} 件）`}</div>
-      <table class="strategy-table">
-        <tr><th>打包方式</th><th>飞人</th><th>行李</th><th>行李费</th><th>对比</th></tr>
-        ${cost.strategy_comparison.map(s => `
-        <tr class="${s.chosen ? 'picked' : ''}">
-          <td>${s.chosen ? '✓ ' : ''}${s.label}<div class="strategy-desc">${STRATEGY_DESCS[s.label] || ''}</div>${s.also && s.also.length ? `<div class="strategy-desc">「${s.also.join('」「')}」在本批货物下结果相同，已合并</div>` : ''}</td>
-          <td class="num">${s.couriers} 人</td>
-          <td class="num">${s.bags} 件</td>
-          <td class="fee">USD ${s.usd.toLocaleString()}</td>
-          <td>${cmpCell(s)}</td>
-        </tr>`).join('')}
-      </table>
-      <div class="strategy-note">多派人要另付机票和人工（工具未计入），两相权衡后自行决定。想按某个备选执行，把「每人最多可托运」调小后点重新计算。</div>`;
-    stratEl.style.display = '';
-  } else {
-    stratEl.innerHTML = '';
-    stratEl.style.display = 'none';
-  }
+  stratEl.innerHTML = '';
+  stratEl.style.display = 'none';
 
   document.getElementById('cost-disclaimer').textContent = `⚠ ${cost.disclaimer || '费用仅供参考，以航司实际收取为准'}`;
 
