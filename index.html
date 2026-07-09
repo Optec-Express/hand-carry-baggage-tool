@@ -1050,11 +1050,15 @@ body {
 .allgood { margin-top:16px; background:var(--ok-bg); border-radius:12px; padding:13px 16px;
   font-size:13px; color:var(--ok); font-weight:600; }
 
-.airline-row { display:flex; align-items:center; gap:10px; margin-bottom:9px; }
+.airline-row { display:flex; align-items:center; gap:10px; margin-bottom:9px; flex-wrap:wrap; }
 .airline-row .ar-idx { font-size:12px; font-weight:700; color:var(--accent); min-width:42px; }
-.airline-row .ar-sel { flex:1; min-width:0; border:1px solid var(--border); background:var(--surface);
+.airline-row .ar-sel { flex:1; min-width:180px; border:1px solid var(--border); background:var(--surface);
   color:var(--text); border-radius:8px; padding:9px 10px; font:inherit; font-size:13.5px; }
-.airline-row .ar-cab { flex:0 0 190px; }
+.airline-row .ar-cab { flex:0 0 160px; }
+.airline-row .ar-mini { display:flex; align-items:center; gap:5px; flex:0 0 auto;
+  font-size:12px; color:var(--text-2); font-weight:600; }
+.airline-row .ar-mini select { border:1px solid var(--border); background:var(--surface); color:var(--text);
+  border-radius:8px; padding:9px 8px; font:inherit; font-size:13px; }
 .airline-row .ar-tickets { display:flex; align-items:center; gap:6px; flex:0 0 auto; }
 .airline-row .ar-tickets input { width:96px; border:1px solid var(--accent); background:var(--accent-l);
   color:var(--text); border-radius:8px; padding:9px 10px; font:inherit; font-size:13.5px; font-weight:600; }
@@ -2678,9 +2682,9 @@ function setQuoteMode(mode) {
   document.getElementById('mode-multi').classList.toggle('on', !single);
   document.getElementById('mode-single').setAttribute('aria-selected', single);
   document.getElementById('mode-multi').setAttribute('aria-selected', !single);
-  // Airline + cabin move into the per-row list in multi mode; 免费件数 / 机票含kg
-  // stay visible as shared overrides applied to every airline in the list.
-  ['field-airline', 'field-cabin'].forEach(id =>
+  // In multi mode every per-airline field (airline/cabin/free/weight) moves
+  // into its own row in the list, so hide the single-airline versions.
+  ['field-airline', 'field-cabin', 'field-free', 'field-weight'].forEach(id =>
     document.getElementById(id).style.display = single ? '' : 'none');
   document.getElementById('multi-airline-block').style.display = single ? 'none' : '';
   document.getElementById('multi-leg-card').style.display = 'none';
@@ -2701,6 +2705,8 @@ function addAirlineRow() {
     `<span class="ar-idx"></span>` +
     `<select id="ar-air-${id}" class="ar-sel">${document.getElementById('sel-airline').innerHTML}</select>` +
     `<select id="ar-cab-${id}" class="ar-sel ar-cab">${document.getElementById('sel-class').innerHTML}</select>` +
+    `<label class="ar-mini">免费<select id="ar-free-${id}">${document.getElementById('sel-free-bags').innerHTML}</select></label>` +
+    `<label class="ar-mini">含kg<select id="ar-wt-${id}">${document.getElementById('sel-bag-weight').innerHTML}</select></label>` +
     `<div class="ar-tickets"><input type="number" id="ar-tk-${id}" min="1" step="1" placeholder="机票数"><span>张</span></div>` +
     `<button type="button" class="del-btn" title="删除本航司" onclick="delAirlineRow(${id})">✕</button>`;
   document.getElementById('airline-list').appendChild(div);
@@ -2725,7 +2731,11 @@ function collectAirlineRows() {
     const name = sel.selectedOptions[0].text.split('·')[1]?.trim().split('—')[0].trim() || code;
     const cabin = document.getElementById('ar-cab-' + id).value;
     const tickets = parseInt(document.getElementById('ar-tk-' + id).value) || 0;
-    return { code, name, cabin, tickets };
+    const allowance = {
+      free: document.getElementById('ar-free-' + id).value,
+      weight: document.getElementById('ar-wt-' + id).value,
+    };
+    return { code, name, cabin, tickets, allowance };
   });
 }
 
@@ -2955,8 +2965,6 @@ async function multiCalculate() {
   if (list.some(r => !r.tickets)) { showErr('每家航司都要填「机票数」（本航班可用飞人数）'); return; }
   const origin = document.getElementById('inp-origin').value.trim();
   const destination = document.getElementById('inp-destination').value.trim();
-  // Shared 免费件数 / 机票含kg overrides apply to every airline in the list.
-  const allowance = getCourierAllowance();
 
   document.getElementById('results').style.display = 'none';
   document.getElementById('err-box').style.display = 'none';
@@ -2971,7 +2979,7 @@ async function multiCalculate() {
       if (!remaining.length) break; // everything already placed on earlier airlines
       const r = list[i];
       document.getElementById('loading-airline').textContent = `${r.code} ${r.name}（第 ${i + 1}/${list.length} 家）`;
-      const rules = await lookupRules(r.code, r.name, r.cabin, origin, destination, allowance);
+      const rules = await lookupRules(r.code, r.name, r.cabin, origin, destination, r.allowance);
       const { result, leftoverItems } = packCapped(remaining, rules, r.tickets);
       legs.push({
         code: r.code, name: r.name, cabin: r.cabin, tickets: r.tickets,
