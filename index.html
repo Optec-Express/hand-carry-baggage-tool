@@ -2620,10 +2620,11 @@ async function calculate() {
   try {
     // Airline fee tables change on a yearly cadence (announced in advance),
     // so cached rules live 30 days.
-    // v2: CX weight-concept lookup enabled. (The CX oversize fee is pinned in
-    // cxApplyZoneFees AFTER cache retrieval, so bad cached values get
-    // corrected without invalidating the cache.)
-    const cacheKey = `rules-cache:v2:${airlineCode}|${cabin}|${origin}|${destination}`;
+    // v3: corrected 14 official baggage-fee URLs + switched non-CX airlines to
+    // direct fetch-only + "no estimates, return null" prompt. Bumping the
+    // version retires every stale cached result (old wrong URLs / $200-type
+    // estimates) so the next lookup re-fetches from the new pages.
+    const cacheKey = `rules-cache:v3:${airlineCode}|${cabin}|${origin}|${destination}`;
     const RULES_CACHE_TTL_MS = 30 * 24 * 3600 * 1000;
     let rules = null;
     try {
@@ -2665,7 +2666,7 @@ async function calculate() {
           fetchOnly: !!BAGGAGE_LINKS[airlineCode],
           // Shared company-wide cache key on the proxy side (Upstash Redis) —
           // one paid lookup serves every machine for the TTL window.
-          cacheKey: `v2:${airlineCode}|${cabin}|${origin}|${destination}`,
+          cacheKey: `v3:${airlineCode}|${cabin}|${origin}|${destination}`,
           messages: [{ role: 'user', content: prompt }]
         })
       });
