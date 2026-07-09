@@ -2659,9 +2659,7 @@ function setQuoteMode(mode) {
   document.getElementById('field-tickets').style.display = single ? 'none' : '';
   // Leaving multi mode wipes the running tally so single-airline stays clean.
   if (single) { multiLegs = []; currentLeftover = []; currentLeg = null; }
-  document.getElementById('multi-leg-card').style.display =
-    (!single && (multiLegs.length || currentLeftover.length)) ? '' : 'none';
-  renderMultiLeg();
+  renderMultiLeg(); // handles show/hide (incl. the how-to when nothing yet)
 }
 
 function ticketCap() {
@@ -2743,8 +2741,19 @@ function clearMultiLeg() {
 // total + the leftover carry-over action.
 function renderMultiLeg() {
   const card = document.getElementById('multi-leg-card');
-  if (quoteMode !== 'multi' || (!multiLegs.length && !currentLeftover.length && !currentLeg)) {
-    card.style.display = 'none';
+  if (quoteMode !== 'multi') { card.style.display = 'none'; return; }
+  // Multi mode but nothing calculated yet → show a short how-to so the
+  // sequential flow (calc one airline → roll leftover to the next) is obvious.
+  if (!multiLegs.length && !currentLeftover.length && !currentLeg) {
+    card.style.display = '';
+    card.innerHTML = `
+      <div class="section-hd">多航司分段 · 怎么用</div>
+      <ol style="margin:6px 0 0; padding-left:22px; line-height:1.9; font-size:13px; color:var(--text-2);">
+        <li>录入全部货物，选 <b>航司①</b>，把「本航班可用机票」填一个数字（例如 <b>3</b>，不能留"不限"，否则这家就把货全带走了）。</li>
+        <li>点 <b>AI 智能计算</b> → 这里会列出航司① 用几人、装了哪些货，装不下的会提示。</li>
+        <li>点 <b>➡ 剩余货物转下一航司</b> → 剩余货自动回到货物清单。</li>
+        <li>把「目的航空公司」改成 <b>航司②</b>，填它的可用机票，再点计算。重复直到货全部装完。</li>
+      </ol>`;
     return;
   }
   card.style.display = '';
