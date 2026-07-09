@@ -1308,29 +1308,33 @@ let lastRender = null; // last rendered result payload — feeds 复制打包方
 // Best-effort links to each airline's own official baggage-policy page.
 // Not guaranteed current — airlines restructure their sites; shown as a
 // starting point for the user to verify the AI-looked-up numbers against.
+// Official baggage/fee pages. Verified 2026-07; 12 stale links corrected
+// (some were 404 or on dead domains). Note: many airline sites WAF-block
+// automated fetches — if a lookup keeps returning 未查到 for one of them, the
+// page is likely bot-blocked, not wrong; fill the fee manually.
 const BAGGAGE_LINKS = {
-  CX: 'https://www.cathaypacific.com/cx/en_US/baggage.html',
-  JL: 'https://www.jal.co.jp/en/inter/baggage/',
-  NH: 'https://www.ana.co.jp/en/us/baggage-rules-services/',
+  CX: 'https://flights.cathaypacific.com/en_US/baggage.html',
+  JL: 'https://www.jal.co.jp/jp/en/inter/baggage/checked/',
+  NH: 'https://www.ana.co.jp/en/us/travel-information/baggage-information/checked-baggage/',
   AA: 'https://www.aa.com/i18n/travel-info/baggage/checked-baggage-policy.jsp',
   UA: 'https://www.united.com/en/us/fly/baggage/checked-bags.html',
-  TK: 'https://www.turkishairlines.com/en-int/any-questions/baggage-allowance/',
-  QR: 'https://www.qatarairways.com/en/baggage.html',
+  TK: 'https://www.turkishairlines.com/en-us/any-questions/checked-baggage/',
+  QR: 'https://www.qatarairways.com/en/baggage/allowance.html',
   LH: 'https://www.lufthansa.com/us/en/baggage',
-  PR: 'https://www.philippineairlines.com/en/plan/baggage',
-  SQ: 'https://www.singaporeair.com/en_UK/us/travel-info/baggage/',
-  KE: 'https://www.koreanair.com/us/en/booking/baggage',
+  PR: 'https://www.philippineairlines.com/us/en/before-you-fly/baggage-information/baggage-allowance/baggage-allowance-fees.html',
+  SQ: 'https://www.singaporeair.com/en_UK/us/travel-info/baggage/checked-baggage/',
+  KE: 'https://www.koreanair.com/contents/plan-your-travel/baggage/checked-baggage/excess-baggage?hl=en',
   EK: 'https://www.emirates.com/us/english/before-you-fly/baggage/',
   DL: 'https://www.delta.com/us/en/baggage/overview',
   AC: 'https://www.aircanada.com/us/en/aco/home/plan/baggage.html',
-  CA: 'https://www.airchina.us/US/GB/info/baggagetravel',
+  CA: 'https://www.airchina.us/US/GB/info/checked-baggage/',
   CK: 'https://www.airchinacargo.com/',
-  CZ: 'https://global.csair.com/US/en/travelservice/baggage/',
-  CI: 'https://www.china-airlines.com/us/en/fly/prepare-to-fly/baggage',
+  CZ: 'https://www.csair.com/us/en/tourguide/traffic/luggage/',
+  CI: 'https://www.china-airlines.com/us/en/fly/prepare-for-the-fly/baggage/baggage-rules',
   BR: 'https://www.evaair.com/en-us/travel-information/baggage/',
   OZ: 'https://flyasiana.com/C/US/EN/contents/baggage-allowance',
   LX: 'https://www.swiss.com/us/en/prepare/baggage',
-  MU: 'https://us.ceair.com/newBaggagePC.html',
+  MU: 'https://www.ceair.com/global/en_static/Announcement/BaggageService/FreeBaggageAllowanceandSpecifications/',
   TG: 'https://www.thaiairways.com/en/plan_my_trip/baggage/',
   VN: 'https://www.vietnamairlines.com/us/en/travel-information/baggage',
 };
