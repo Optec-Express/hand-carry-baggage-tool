@@ -1003,6 +1003,52 @@ body {
 }
 
 .toast.show { opacity: 1; transform: none; }
+
+/* ── Multi-airline (waterfall) mode ─────────────────────── */
+.mode-seg { display:inline-flex; background:var(--bg); border:1px solid var(--border);
+  border-radius:10px; padding:3px; gap:2px; }
+.mode-seg button { border:0; background:transparent; color:var(--text-2); font:inherit;
+  font-weight:600; font-size:12.5px; padding:6px 14px; border-radius:7px; cursor:pointer;
+  transition:.15s; white-space:nowrap; }
+.mode-seg button.on { background:var(--surface); color:var(--accent);
+  box-shadow:0 1px 2px rgba(15,23,42,.14); }
+.mode-seg button:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+
+.field.hl label { color:var(--accent); }
+.field.hl input { border-color:var(--accent); background:var(--accent-l); font-weight:600; }
+
+.mleg-flow { display:flex; flex-direction:column; }
+.mleg { display:grid; grid-template-columns:26px 1fr auto; align-items:center; gap:14px;
+  padding:13px 2px; }
+.mleg + .mleg { border-top:1px dashed var(--border); }
+.mleg .dot { width:26px; height:26px; border-radius:50%; display:grid; place-items:center;
+  font-size:12px; font-weight:700; background:var(--accent-l); color:var(--accent);
+  border:1px solid var(--border); }
+.mleg.done .dot { background:var(--ok-bg); color:var(--ok); border-color:transparent; }
+.mleg.current .dot { background:var(--accent); color:#fff; border-color:transparent; }
+.mleg .who { font-weight:700; font-size:14px; }
+.mleg .sub { font-size:12px; color:var(--text-2); margin-top:2px; }
+.mleg .amt { text-align:right; font-variant-numeric:tabular-nums; }
+.mleg .amt .ppl { font-weight:700; }
+.mleg .amt .usd { font-size:12.5px; color:var(--text-2); margin-top:2px; }
+.mpill { display:inline-block; font-size:11px; font-weight:700; padding:2px 8px;
+  border-radius:20px; margin-left:8px; vertical-align:middle; }
+.mpill.done { background:var(--ok-bg); color:var(--ok); }
+.mpill.cur { background:var(--accent-l); color:var(--accent); }
+.mtotal { display:flex; align-items:baseline; justify-content:space-between; margin-top:6px;
+  padding-top:14px; border-top:2px solid var(--border); }
+.mtotal .lab { font-weight:700; font-size:14px; }
+.mtotal .big b { font-size:22px; color:var(--accent); font-variant-numeric:tabular-nums; }
+.mtotal .big .u { font-size:13px; color:var(--text-2); margin-left:10px; }
+.leftover { margin-top:16px; background:var(--warn-bg); border:1px solid var(--warn);
+  border-radius:12px; padding:14px 16px; display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+.leftover .txt { flex:1; min-width:220px; font-size:13px; }
+.leftover .txt b { color:var(--warn); }
+.leftover button { border:0; border-radius:9px; background:var(--accent); color:#fff;
+  font:inherit; font-weight:700; font-size:13.5px; padding:11px 18px; cursor:pointer; white-space:nowrap; }
+.leftover button:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+.allgood { margin-top:16px; background:var(--ok-bg); border-radius:12px; padding:13px 16px;
+  font-size:13px; color:var(--ok); font-weight:600; }
 </style>
 </head>
 <body>
@@ -1026,10 +1072,14 @@ body {
 
   <!-- Settings -->
   <div class="card">
-    <div class="card-title" style="display:flex; align-items:center;">
+    <div class="card-title" style="display:flex; align-items:center; gap:12px;">
       航班参数
+      <div class="mode-seg" id="mode-seg" role="tablist" aria-label="报价模式" style="margin-left:auto;">
+        <button type="button" class="on" id="mode-single" role="tab" aria-selected="true" onclick="setQuoteMode('single')">单航司</button>
+        <button type="button" id="mode-multi" role="tab" aria-selected="false" onclick="setQuoteMode('multi')">多航司分段</button>
+      </div>
       <button id="reset-btn" onclick="resetAll()"
-              style="margin-left:auto; background:#DC2626; color:#fff; border:none; border-radius:7px; padding:7px 18px; font-size:13px; font-weight:600; cursor:pointer;"
+              style="background:#DC2626; color:#fff; border:none; border-radius:7px; padding:7px 18px; font-size:13px; font-weight:600; cursor:pointer;"
               title="清空所有输入，开始计算新航线">🔄 清空</button>
     </div>
     <div class="settings-grid">
@@ -1095,6 +1145,10 @@ body {
       <div class="field">
         <label>目的港</label>
         <input type="text" id="inp-destination" placeholder="例如 洛杉矶 / LAX">
+      </div>
+      <div class="field hl" id="field-tickets" style="display:none;">
+        <label>本航班可用机票（飞人上限）</label>
+        <input type="number" id="inp-tickets" min="1" step="1" placeholder="不限">
       </div>
     </div>
     <p class="paste-hint" style="margin-top:6px; margin-bottom:0;">
@@ -1249,6 +1303,9 @@ body {
   <div id="err-box" style="display:none;"></div>
 
   <!-- Results -->
+  <!-- Multi-airline waterfall summary (hidden until a leg is booked) -->
+  <div class="card" id="multi-leg-card" style="display:none;"></div>
+
   <div id="results">
 
     <div class="card">
@@ -1301,6 +1358,11 @@ let rows = [];
 let nextId = 1;
 let activeTab = 'manual';
 let importedTotalWeightKg = null;
+// Multi-airline (waterfall) mode: 'single' = normal one-airline quote.
+let quoteMode = 'single';
+let multiLegs = [];       // confirmed legs: {airlineCode,airlineName,cabin,couriers,bags,usd,tickets}
+let currentLeg = null;    // the leg just calculated, not yet confirmed
+let currentLeftover = []; // cargo items this leg's tickets couldn't fit
 let lastCalc = null; // { items, rules, allowance } — lets recalc() rerun packCouriers() without a new AI call
 let lastRender = null; // last rendered result payload — feeds 复制打包方案
 
@@ -1816,6 +1878,9 @@ function resetAll() {
   document.getElementById('results').style.display = 'none';
   lastCalc = null;
   lastRender = null;
+  // full reset also drops any multi-airline tally and returns to single mode
+  document.getElementById('inp-tickets').value = '';
+  setQuoteMode('single');
   updateCargoSummary();
   switchTab('manual');
   toast('已清空，请选择新航司并录入货物');
@@ -2583,6 +2648,156 @@ function assignAndPrice(pieces, rules, strategyLabel, totalBoxes) {
   };
 }
 
+// ─── Multi-airline (waterfall) mode ───────────────────────
+function setQuoteMode(mode) {
+  quoteMode = mode;
+  const single = mode === 'single';
+  document.getElementById('mode-single').classList.toggle('on', single);
+  document.getElementById('mode-multi').classList.toggle('on', !single);
+  document.getElementById('mode-single').setAttribute('aria-selected', single);
+  document.getElementById('mode-multi').setAttribute('aria-selected', !single);
+  document.getElementById('field-tickets').style.display = single ? 'none' : '';
+  // Leaving multi mode wipes the running tally so single-airline stays clean.
+  if (single) { multiLegs = []; currentLeftover = []; currentLeg = null; }
+  document.getElementById('multi-leg-card').style.display =
+    (!single && (multiLegs.length || currentLeftover.length)) ? '' : 'none';
+  renderMultiLeg();
+}
+
+function ticketCap() {
+  if (quoteMode !== 'multi') return 0;
+  const n = parseInt(document.getElementById('inp-tickets').value);
+  return n > 0 ? n : 0;
+}
+
+function courierWeight(c) {
+  return (c.bags || []).reduce((s, b) => s + (b.total_weight_kg || 0), 0);
+}
+
+// Flatten a set of couriers back into cargo items (grouping identical boxes),
+// so leftover cargo can re-pack under the NEXT airline's own limits.
+function couriersToCargoItems(couriers) {
+  const map = new Map();
+  for (const c of couriers) {
+    for (const bag of (c.bags || [])) {
+      for (const it of (bag.items || [])) {
+        const [l, w, h] = (it.dims || '').split('x').map(Number);
+        const key = `${it.label}|${l}|${w}|${h}|${it.weight_kg}`;
+        const e = map.get(key);
+        if (e) e.q += 1;
+        else map.set(key, { desc: it.label, l, w, h, kg: it.weight_kg, q: 1 });
+      }
+    }
+  }
+  return [...map.values()];
+}
+
+// Pack this leg. With a ticket cap, keep the fullest `cap` couriers on THIS
+// airline and hand the overflow boxes back as leftover for the next airline.
+// Re-packing the kept subset gives a correctly priced leg result.
+function packLeg(items, rules) {
+  const cap = ticketCap();
+  const full = packCouriers(items, rules);
+  if (!cap || full.cost.total_couriers <= cap) {
+    currentLeftover = [];
+    return full;
+  }
+  const sorted = full.couriers.slice().sort((a, b) => courierWeight(b) - courierWeight(a));
+  const keptItems = couriersToCargoItems(sorted.slice(0, cap));
+  currentLeftover = couriersToCargoItems(sorted.slice(cap));
+  return packCouriers(keptItems, rules);
+}
+
+// Replace the cargo table with a given item list (used when leftover rolls
+// over to the next airline).
+function loadItemsIntoRows(items) {
+  document.getElementById('tbl-body').innerHTML = '';
+  rows = [];
+  if (!items.length) { addRow(); return; }
+  items.forEach(it => addRow({ l: it.l, w: it.w, h: it.h, kg: it.kg, q: it.q }));
+}
+
+function carryToNextAirline() {
+  if (!currentLeftover.length) return;
+  if (currentLeg) { multiLegs.push(currentLeg); currentLeg = null; } // confirm this leg
+  loadItemsIntoRows(currentLeftover);
+  currentLeftover = [];
+  document.getElementById('inp-tickets').value = '';
+  document.getElementById('results').style.display = 'none';
+  renderMultiLeg();
+  toast(`剩余货物已载入货物清单，请选择下一航司并计算`);
+  document.getElementById('sel-airline').scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+function clearMultiLeg() {
+  multiLegs = [];
+  currentLeg = null;
+  currentLeftover = [];
+  document.getElementById('inp-tickets').value = '';
+  document.getElementById('multi-leg-card').style.display = 'none';
+  renderMultiLeg();
+  toast('已清空多航司分段');
+}
+
+// Render the running summary card: confirmed legs + the current leg + grand
+// total + the leftover carry-over action.
+function renderMultiLeg() {
+  const card = document.getElementById('multi-leg-card');
+  if (quoteMode !== 'multi' || (!multiLegs.length && !currentLeftover.length && !currentLeg)) {
+    card.style.display = 'none';
+    return;
+  }
+  card.style.display = '';
+  const legs = multiLegs.slice();
+  const cur = currentLeg || null;
+  const rowsHtml = legs.map((lg, i) => `
+    <div class="mleg done">
+      <div class="dot">✓</div>
+      <div>
+        <div class="who">${i + 1}. ${lg.airlineCode} · ${lg.airlineName}<span class="mpill done">已确定</span></div>
+        <div class="sub">${lg.cabin} · 承运 ${lg.bags} 件行李${lg.tickets ? ` · 用 ${lg.tickets} 张机票` : ''}</div>
+      </div>
+      <div class="amt"><div class="ppl">${lg.couriers} 人</div><div class="usd">${lg.usd == null ? '费率未查到' : 'USD ' + lg.usd.toLocaleString()}</div></div>
+    </div>`).join('');
+  const curHtml = cur ? `
+    <div class="mleg current">
+      <div class="dot">${legs.length + 1}</div>
+      <div>
+        <div class="who">${legs.length + 1}. ${cur.airlineCode} · ${cur.airlineName}<span class="mpill cur">本次计算</span></div>
+        <div class="sub">${cur.cabin} · 承运 ${cur.bags} 件行李${cur.tickets ? ` · 可用 ${cur.tickets} 张机票` : ''}</div>
+      </div>
+      <div class="amt"><div class="ppl">${cur.couriers} 人</div><div class="usd">${cur.usd == null ? '费率未查到' : 'USD ' + cur.usd.toLocaleString()}</div></div>
+    </div>` : '';
+
+  const totPeople = legs.reduce((s, l) => s + l.couriers, 0) + (cur ? cur.couriers : 0);
+  const anyNull = legs.some(l => l.usd == null) || (cur && cur.usd == null);
+  const totUsd = legs.reduce((s, l) => s + (l.usd || 0), 0) + (cur ? (cur.usd || 0) : 0);
+  const legCount = legs.length + (cur ? 1 : 0);
+
+  let tail = '';
+  if (currentLeftover.length) {
+    const n = currentLeftover.reduce((s, it) => s + it.q, 0);
+    const kg = currentLeftover.reduce((s, it) => s + it.kg * it.q, 0);
+    tail = `<div class="leftover">
+      <div class="txt">⚠ 本航班的机票装不下全部货物，<b>还剩 ${n} 件 / ${kg.toFixed(1)} kg</b> 需下一家航司承运。</div>
+      <button type="button" onclick="carryToNextAirline()">➡ 剩余货物转下一航司</button>
+    </div>`;
+  } else if (cur) {
+    tail = `<div class="allgood">✓ 全部货物已安排完毕，共 ${totPeople} 人${anyNull ? '' : ` / USD ${totUsd.toLocaleString()}`}。</div>`;
+  }
+
+  card.innerHTML = `
+    <div class="section-hd">多航司分段汇总
+      <button class="btn-outline" style="margin-left:auto; padding:6px 14px; font-size:12.5px;" onclick="clearMultiLeg()">↺ 重新开始</button>
+    </div>
+    <div class="mleg-flow">${rowsHtml}${curHtml}</div>
+    <div class="mtotal">
+      <div class="lab">目前合计（${legCount} 段）</div>
+      <div class="big"><b>${totPeople} 人</b>${anyNull ? '<span class="u">部分费率未查到</span>' : `<span class="u">USD ${totUsd.toLocaleString()}</span>`}</div>
+    </div>
+    ${tail}`;
+}
+
 // ─── Calculate ────────────────────────────────────────────
 async function calculate() {
   console.log('[1] calculate() started');
@@ -2752,12 +2967,26 @@ async function calculate() {
     }
     rules.max_total_weight_kg = 0;
 
-    const packed = packCouriers(items, rules);
+    const packed = packLeg(items, rules);
     if (weightEstimated) {
       packed.summary = '单件重量为按体积估算，非实测。' + packed.summary;
     }
     lastCalc = { items, rules, allowance };
+    // Multi-airline: record this leg for the running summary (leftover, if any,
+    // was set by packLeg). Single mode keeps the tally cleared.
+    if (quoteMode === 'multi') {
+      currentLeg = {
+        airlineCode, airlineName, cabin,
+        couriers: packed.cost.total_couriers,
+        bags: packed.cost.total_bags,
+        usd: packed.cost.total_usd,
+        tickets: ticketCap(),
+      };
+    } else {
+      currentLeg = null; multiLegs = []; currentLeftover = [];
+    }
     renderResults({ airline_rules: rules, ...packed });
+    renderMultiLeg();
     console.log('[11] renderResults done');
 
   } catch (e) {
@@ -3149,9 +3378,15 @@ function recalc() {
   rules.overweight_fee_text = `USD ${rules.overweight_fee_usd}/件`;
   rules.oversize_fee_text = `USD ${rules.oversize_fee_usd}/件`;
 
-  const packed = packCouriers(lastCalc.items, rules);
+  const packed = packLeg(lastCalc.items, rules);
   lastCalc = { ...lastCalc, rules };
+  if (quoteMode === 'multi' && currentLeg) {
+    currentLeg = { ...currentLeg,
+      couriers: packed.cost.total_couriers, bags: packed.cost.total_bags,
+      usd: packed.cost.total_usd, tickets: ticketCap() };
+  }
   renderResults({ airline_rules: rules, ...packed });
+  renderMultiLeg();
   toast('已按新数值重新计算');
 }
 
