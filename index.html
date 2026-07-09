@@ -1054,17 +1054,18 @@ body {
   font-size:13px; color:var(--ok); font-weight:600; }
 
 .airline-row { display:flex; align-items:center; gap:10px; margin-bottom:9px; flex-wrap:wrap; }
-.airline-row .ar-idx { font-size:12px; font-weight:700; color:var(--accent); min-width:42px; }
-.airline-row .ar-sel { flex:1; min-width:180px; border:1px solid var(--border); background:var(--surface);
-  color:var(--text); border-radius:8px; padding:9px 10px; font:inherit; font-size:13.5px; }
-.airline-row .ar-cab { flex:0 0 160px; }
+.airline-row .ar-idx { font-size:12px; font-weight:700; color:var(--accent); flex:0 0 42px; }
+/* Shared control box so every field lines up at the same height. */
+.airline-row select,
+.airline-row .ar-tickets input { height:40px; border:1px solid var(--border); background:var(--surface);
+  color:var(--text); border-radius:8px; padding:0 10px; font:inherit; font-size:13.5px; box-sizing:border-box; }
+.airline-row .ar-sel { flex:2 1 200px; min-width:0; }           /* airline: widest */
+.airline-row .ar-cab { flex:1 1 140px; min-width:0; }           /* cabin: medium */
 .airline-row .ar-mini { display:flex; align-items:center; gap:5px; flex:0 0 auto;
   font-size:12px; color:var(--text-2); font-weight:600; }
-.airline-row .ar-mini select { border:1px solid var(--border); background:var(--surface); color:var(--text);
-  border-radius:8px; padding:9px 8px; font:inherit; font-size:13px; }
+.airline-row .ar-mini select { width:104px; }                   /* free / weight: equal */
 .airline-row .ar-tickets { display:flex; align-items:center; gap:6px; flex:0 0 auto; }
-.airline-row .ar-tickets input { width:96px; border:1px solid var(--accent); background:var(--accent-l);
-  color:var(--text); border-radius:8px; padding:9px 10px; font:inherit; font-size:13.5px; font-weight:600; }
+.airline-row .ar-tickets input { width:104px; border-color:var(--accent); background:var(--accent-l); font-weight:600; }
 .airline-row .ar-tickets span { font-size:12px; color:var(--text-2); }
 .add-airline { border:1px dashed var(--border); background:var(--bg); color:var(--accent); font:inherit;
   font-weight:600; font-size:13px; padding:9px 16px; border-radius:9px; cursor:pointer; margin-top:2px; }
