@@ -1049,6 +1049,20 @@ body {
 .leftover button:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
 .allgood { margin-top:16px; background:var(--ok-bg); border-radius:12px; padding:13px 16px;
   font-size:13px; color:var(--ok); font-weight:600; }
+
+.airline-row { display:flex; align-items:center; gap:10px; margin-bottom:9px; }
+.airline-row .ar-idx { font-size:12px; font-weight:700; color:var(--accent); min-width:42px; }
+.airline-row .ar-sel { flex:1; min-width:0; border:1px solid var(--border); background:var(--surface);
+  color:var(--text); border-radius:8px; padding:9px 10px; font:inherit; font-size:13.5px; }
+.airline-row .ar-cab { flex:0 0 190px; }
+.airline-row .ar-tickets { display:flex; align-items:center; gap:6px; flex:0 0 auto; }
+.airline-row .ar-tickets input { width:96px; border:1px solid var(--accent); background:var(--accent-l);
+  color:var(--text); border-radius:8px; padding:9px 10px; font:inherit; font-size:13.5px; font-weight:600; }
+.airline-row .ar-tickets span { font-size:12px; color:var(--text-2); }
+.add-airline { border:1px dashed var(--border); background:var(--bg); color:var(--accent); font:inherit;
+  font-weight:600; font-size:13px; padding:9px 16px; border-radius:9px; cursor:pointer; margin-top:2px; }
+.add-airline:hover { border-color:var(--accent); background:var(--accent-l); }
+.add-airline:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
 </style>
 </head>
 <body>
@@ -1083,7 +1097,7 @@ body {
               title="清空所有输入，开始计算新航线">🔄 清空</button>
     </div>
     <div class="settings-grid">
-      <div class="field">
+      <div class="field" id="field-airline">
         <label>目的航空公司</label>
         <select id="sel-airline">
           <option value="CX">CX · 国泰航空</option>
@@ -1111,7 +1125,7 @@ body {
           <option value="VN">VN · 越南航空</option>
         </select>
       </div>
-      <div class="field">
+      <div class="field" id="field-cabin">
         <label>舱位</label>
         <select id="sel-class">
           <option value="经济舱">经济舱 (Economy)</option>
@@ -1120,7 +1134,7 @@ body {
           <option value="头等舱">头等舱 (First Class)</option>
         </select>
       </div>
-      <div class="field">
+      <div class="field" id="field-free">
         <label>每位飞人免费件数</label>
         <select id="sel-free-bags">
           <option value="auto">自动判断</option>
@@ -1130,7 +1144,7 @@ body {
           <option value="4">4 件</option>
         </select>
       </div>
-      <div class="field">
+      <div class="field" id="field-weight">
         <label>机票含 kg（每件）</label>
         <select id="sel-bag-weight">
           <option value="auto">自动判断</option>
@@ -1146,11 +1160,18 @@ body {
         <label>目的港</label>
         <input type="text" id="inp-destination" placeholder="例如 洛杉矶 / LAX">
       </div>
-      <div class="field hl" id="field-tickets" style="display:none;">
-        <label>本航班可用机票（飞人上限）</label>
-        <input type="number" id="inp-tickets" min="1" step="1" placeholder="不限">
-      </div>
     </div>
+
+    <!-- Multi-airline list (shown only in 多航司分段 mode) -->
+    <div id="multi-airline-block" style="display:none; margin-top:16px;">
+      <div class="section-hd" style="margin-bottom:10px;">航司列表 · 按顺序装（航司① 先用满它的机票，装不下的顺延到航司②…）</div>
+      <div id="airline-list"></div>
+      <button type="button" class="add-airline" onclick="addAirlineRow()">➕ 增加航司</button>
+      <p class="paste-hint" style="margin-top:12px; margin-bottom:0;">
+        填好每家航司、舱位和各自可用机票数，点下方按钮，直接告诉你这批货能否全部装完。始发港 / 目的港所有航司共用。
+      </p>
+    </div>
+
     <p class="paste-hint" style="margin-top:6px; margin-bottom:0;">
       请填写目标机票包含的免费件数及重量
     </p>
@@ -1358,11 +1379,11 @@ let rows = [];
 let nextId = 1;
 let activeTab = 'manual';
 let importedTotalWeightKg = null;
-// Multi-airline (waterfall) mode: 'single' = normal one-airline quote.
+// Multi-airline mode: 'single' = normal one-airline quote; 'multi' = airline
+// list, cargo waterfalls through each carrier's ticket allotment in order.
 let quoteMode = 'single';
-let multiLegs = [];       // confirmed legs: {airlineCode,airlineName,cabin,couriers,bags,usd,tickets}
-let currentLeg = null;    // the leg just calculated, not yet confirmed
-let currentLeftover = []; // cargo items this leg's tickets couldn't fit
+let airlineRows = [];     // ids of the airline rows in the multi-airline list
+let nextAirlineId = 1;
 let lastCalc = null; // { items, rules, allowance } — lets recalc() rerun packCouriers() without a new AI call
 let lastRender = null; // last rendered result payload — feeds 复制打包方案
 
@@ -1878,8 +1899,9 @@ function resetAll() {
   document.getElementById('results').style.display = 'none';
   lastCalc = null;
   lastRender = null;
-  // full reset also drops any multi-airline tally and returns to single mode
-  document.getElementById('inp-tickets').value = '';
+  // full reset also drops the multi-airline list and returns to single mode
+  document.getElementById('airline-list').innerHTML = '';
+  airlineRows = [];
   setQuoteMode('single');
   updateCargoSummary();
   switchTab('manual');
@@ -2648,7 +2670,7 @@ function assignAndPrice(pieces, rules, strategyLabel, totalBoxes) {
   };
 }
 
-// ─── Multi-airline (waterfall) mode ───────────────────────
+// ─── Multi-airline mode (airline list → one "does it all fit?" answer) ────
 function setQuoteMode(mode) {
   quoteMode = mode;
   const single = mode === 'single';
@@ -2656,16 +2678,54 @@ function setQuoteMode(mode) {
   document.getElementById('mode-multi').classList.toggle('on', !single);
   document.getElementById('mode-single').setAttribute('aria-selected', single);
   document.getElementById('mode-multi').setAttribute('aria-selected', !single);
-  document.getElementById('field-tickets').style.display = single ? 'none' : '';
-  // Leaving multi mode wipes the running tally so single-airline stays clean.
-  if (single) { multiLegs = []; currentLeftover = []; currentLeg = null; }
-  renderMultiLeg(); // handles show/hide (incl. the how-to when nothing yet)
+  // Single-airline fields (airline/cabin/free/weight) vs the multi-airline list.
+  ['field-airline', 'field-cabin', 'field-free', 'field-weight'].forEach(id =>
+    document.getElementById(id).style.display = single ? '' : 'none');
+  document.getElementById('multi-airline-block').style.display = single ? 'none' : '';
+  document.getElementById('multi-leg-card').style.display = 'none';
+  if (!single && !airlineRows.length) { addAirlineRow(); addAirlineRow(); }
+  document.getElementById('calc-btn').textContent = single
+    ? 'AI 智能计算最优打包方案'
+    : 'AI 计算：这些航司能否装完全部货物';
 }
 
-function ticketCap() {
-  if (quoteMode !== 'multi') return 0;
-  const n = parseInt(document.getElementById('inp-tickets').value);
-  return n > 0 ? n : 0;
+// One repeatable airline row: [airline] [cabin] [tickets available] [×].
+function addAirlineRow() {
+  const id = nextAirlineId++;
+  airlineRows.push(id);
+  const div = document.createElement('div');
+  div.className = 'airline-row';
+  div.id = 'ar' + id;
+  div.innerHTML =
+    `<span class="ar-idx"></span>` +
+    `<select id="ar-air-${id}" class="ar-sel">${document.getElementById('sel-airline').innerHTML}</select>` +
+    `<select id="ar-cab-${id}" class="ar-sel ar-cab">${document.getElementById('sel-class').innerHTML}</select>` +
+    `<div class="ar-tickets"><input type="number" id="ar-tk-${id}" min="1" step="1" placeholder="机票数"><span>张</span></div>` +
+    `<button type="button" class="del-btn" title="删除本航司" onclick="delAirlineRow(${id})">✕</button>`;
+  document.getElementById('airline-list').appendChild(div);
+  renumberAirlineRows();
+}
+function delAirlineRow(id) {
+  airlineRows = airlineRows.filter(x => x !== id);
+  document.getElementById('ar' + id)?.remove();
+  if (!airlineRows.length) addAirlineRow();
+  renumberAirlineRows();
+}
+function renumberAirlineRows() {
+  airlineRows.forEach((id, i) => {
+    const el = document.querySelector('#ar' + id + ' .ar-idx');
+    if (el) el.textContent = '航司' + (i + 1);
+  });
+}
+function collectAirlineRows() {
+  return airlineRows.map(id => {
+    const sel = document.getElementById('ar-air-' + id);
+    const code = sel.value;
+    const name = sel.selectedOptions[0].text.split('·')[1]?.trim().split('—')[0].trim() || code;
+    const cabin = document.getElementById('ar-cab-' + id).value;
+    const tickets = parseInt(document.getElementById('ar-tk-' + id).value) || 0;
+    return { code, name, cabin, tickets };
+  });
 }
 
 function courierWeight(c) {
@@ -2690,126 +2750,147 @@ function couriersToCargoItems(couriers) {
   return [...map.values()];
 }
 
-// Pack this leg. With a ticket cap, keep the fullest `cap` couriers on THIS
-// airline and hand the overflow boxes back as leftover for the next airline.
-// Re-packing the kept subset gives a correctly priced leg result.
-function packLeg(items, rules) {
-  const cap = ticketCap();
+// Pack `items` on one airline capped at `cap` couriers; return the priced
+// result plus the overflow boxes (as cargo items) to hand to the next airline.
+function packCapped(items, rules, cap) {
   const full = packCouriers(items, rules);
-  if (!cap || full.cost.total_couriers <= cap) {
-    currentLeftover = [];
-    return full;
-  }
+  if (!cap || full.cost.total_couriers <= cap) return { result: full, leftoverItems: [] };
   const sorted = full.couriers.slice().sort((a, b) => courierWeight(b) - courierWeight(a));
   const keptItems = couriersToCargoItems(sorted.slice(0, cap));
-  currentLeftover = couriersToCargoItems(sorted.slice(cap));
-  return packCouriers(keptItems, rules);
-}
-
-// Replace the cargo table with a given item list (used when leftover rolls
-// over to the next airline).
-function loadItemsIntoRows(items) {
-  document.getElementById('tbl-body').innerHTML = '';
-  rows = [];
-  if (!items.length) { addRow(); return; }
-  items.forEach(it => addRow({ l: it.l, w: it.w, h: it.h, kg: it.kg, q: it.q }));
-}
-
-function carryToNextAirline() {
-  if (!currentLeftover.length) return;
-  if (currentLeg) { multiLegs.push(currentLeg); currentLeg = null; } // confirm this leg
-  loadItemsIntoRows(currentLeftover);
-  currentLeftover = [];
-  document.getElementById('inp-tickets').value = '';
-  document.getElementById('results').style.display = 'none';
-  renderMultiLeg();
-  toast(`剩余货物已载入货物清单，请选择下一航司并计算`);
-  document.getElementById('sel-airline').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  const leftoverItems = couriersToCargoItems(sorted.slice(cap));
+  return { result: packCouriers(keptItems, rules), leftoverItems };
 }
 
 function clearMultiLeg() {
-  multiLegs = [];
-  currentLeg = null;
-  currentLeftover = [];
-  document.getElementById('inp-tickets').value = '';
+  document.getElementById('airline-list').innerHTML = '';
+  airlineRows = [];
+  addAirlineRow(); addAirlineRow();
   document.getElementById('multi-leg-card').style.display = 'none';
-  renderMultiLeg();
-  toast('已清空多航司分段');
+  document.getElementById('results').style.display = 'none';
+  toast('已重置航司列表');
 }
 
-// Render the running summary card: confirmed legs + the current leg + grand
-// total + the leftover carry-over action.
-function renderMultiLeg() {
+// Render the multi-airline verdict: per-airline usage + grand total + a clear
+// "全部装完 / 装不下" answer.
+function renderMultiSummary(legs, leftoverItems) {
   const card = document.getElementById('multi-leg-card');
-  if (quoteMode !== 'multi') { card.style.display = 'none'; return; }
-  // Multi mode but nothing calculated yet → show a short how-to so the
-  // sequential flow (calc one airline → roll leftover to the next) is obvious.
-  if (!multiLegs.length && !currentLeftover.length && !currentLeg) {
-    card.style.display = '';
-    card.innerHTML = `
-      <div class="section-hd">多航司分段 · 怎么用</div>
-      <ol style="margin:6px 0 0; padding-left:22px; line-height:1.9; font-size:13px; color:var(--text-2);">
-        <li>录入全部货物，选 <b>航司①</b>，把「本航班可用机票」填一个数字（例如 <b>3</b>，不能留"不限"，否则这家就把货全带走了）。</li>
-        <li>点 <b>AI 智能计算</b> → 这里会列出航司① 用几人、装了哪些货，装不下的会提示。</li>
-        <li>点 <b>➡ 剩余货物转下一航司</b> → 剩余货自动回到货物清单。</li>
-        <li>把「目的航空公司」改成 <b>航司②</b>，填它的可用机票，再点计算。重复直到货全部装完。</li>
-      </ol>`;
-    return;
-  }
   card.style.display = '';
-  const legs = multiLegs.slice();
-  const cur = currentLeg || null;
   const rowsHtml = legs.map((lg, i) => `
     <div class="mleg done">
-      <div class="dot">✓</div>
+      <div class="dot">${i + 1}</div>
       <div>
-        <div class="who">${i + 1}. ${lg.airlineCode} · ${lg.airlineName}<span class="mpill done">已确定</span></div>
-        <div class="sub">${lg.cabin} · 承运 ${lg.bags} 件行李${lg.tickets ? ` · 用 ${lg.tickets} 张机票` : ''}</div>
+        <div class="who">${lg.code} · ${lg.name}</div>
+        <div class="sub">${lg.cabin} · 用 ${lg.usedCouriers}/${lg.tickets} 张机票 · 承运 ${lg.bags} 件行李</div>
       </div>
-      <div class="amt"><div class="ppl">${lg.couriers} 人</div><div class="usd">${lg.usd == null ? '费率未查到' : 'USD ' + lg.usd.toLocaleString()}</div></div>
+      <div class="amt"><div class="ppl">${lg.usedCouriers} 人</div><div class="usd">${lg.usd == null ? '费率未查到' : 'USD ' + lg.usd.toLocaleString()}</div></div>
     </div>`).join('');
-  const curHtml = cur ? `
-    <div class="mleg current">
-      <div class="dot">${legs.length + 1}</div>
-      <div>
-        <div class="who">${legs.length + 1}. ${cur.airlineCode} · ${cur.airlineName}<span class="mpill cur">本次计算</span></div>
-        <div class="sub">${cur.cabin} · 承运 ${cur.bags} 件行李${cur.tickets ? ` · 可用 ${cur.tickets} 张机票` : ''}</div>
-      </div>
-      <div class="amt"><div class="ppl">${cur.couriers} 人</div><div class="usd">${cur.usd == null ? '费率未查到' : 'USD ' + cur.usd.toLocaleString()}</div></div>
-    </div>` : '';
-
-  const totPeople = legs.reduce((s, l) => s + l.couriers, 0) + (cur ? cur.couriers : 0);
-  const anyNull = legs.some(l => l.usd == null) || (cur && cur.usd == null);
-  const totUsd = legs.reduce((s, l) => s + (l.usd || 0), 0) + (cur ? (cur.usd || 0) : 0);
-  const legCount = legs.length + (cur ? 1 : 0);
-
-  let tail = '';
-  if (currentLeftover.length) {
-    const n = currentLeftover.reduce((s, it) => s + it.q, 0);
-    const kg = currentLeftover.reduce((s, it) => s + it.kg * it.q, 0);
-    tail = `<div class="leftover">
-      <div class="txt">⚠ 本航班的机票装不下全部货物，<b>还剩 ${n} 件 / ${kg.toFixed(1)} kg</b> 需下一家航司承运。</div>
-      <button type="button" onclick="carryToNextAirline()">➡ 剩余货物转下一航司</button>
-    </div>`;
-  } else if (cur) {
-    tail = `<div class="allgood">✓ 全部货物已安排完毕，共 ${totPeople} 人${anyNull ? '' : ` / USD ${totUsd.toLocaleString()}`}。</div>`;
+  const totPeople = legs.reduce((s, l) => s + l.usedCouriers, 0);
+  const anyNull = legs.some(l => l.usd == null);
+  const totUsd = legs.reduce((s, l) => s + (l.usd || 0), 0);
+  let verdict;
+  if (leftoverItems.length) {
+    const n = leftoverItems.reduce((s, it) => s + it.q, 0);
+    const kg = leftoverItems.reduce((s, it) => s + it.kg * it.q, 0);
+    verdict = `<div class="leftover"><div class="txt">⚠ <b>装不下！</b>所有航司的机票已用尽，仍剩 <b>${n} 件 / ${kg.toFixed(1)} kg</b> 没有位置——请再加一家航司，或调大某家的机票数后重算。</div></div>`;
+  } else {
+    verdict = `<div class="allgood">✓ <b>全部货物都能装完！</b>共用 ${totPeople} 位飞人${anyNull ? '' : ` / 总行李费 USD ${totUsd.toLocaleString()}`}。</div>`;
   }
-
   card.innerHTML = `
-    <div class="section-hd">多航司分段汇总
-      <button class="btn-outline" style="margin-left:auto; padding:6px 14px; font-size:12.5px;" onclick="clearMultiLeg()">↺ 重新开始</button>
+    <div class="section-hd">多航司装载结果
+      <button class="btn-outline" style="margin-left:auto; padding:6px 14px; font-size:12.5px;" onclick="clearMultiLeg()">↺ 重置航司列表</button>
     </div>
-    <div class="mleg-flow">${rowsHtml}${curHtml}</div>
+    ${verdict}
+    <div class="mleg-flow" style="margin-top:10px;">${rowsHtml}</div>
     <div class="mtotal">
-      <div class="lab">目前合计（${legCount} 段）</div>
+      <div class="lab">合计（用到 ${legs.length} 家航司）</div>
       <div class="big"><b>${totPeople} 人</b>${anyNull ? '<span class="u">部分费率未查到</span>' : `<span class="u">USD ${totUsd.toLocaleString()}</span>`}</div>
-    </div>
-    ${tail}`;
+    </div>`;
 }
 
-// ─── Calculate ────────────────────────────────────────────
-async function calculate() {
-  console.log('[1] calculate() started');
+// ─── Lookup one airline's finalized rules (cache → AI → code overrides) ───
+async function lookupRules(airlineCode, airlineName, cabin, origin, destination, allowance) {
+  // v3 cache: 30-day TTL. See notes at first use — bumped after URL/prompt fixes.
+  const cacheKey = `rules-cache:v3:${airlineCode}|${cabin}|${origin}|${destination}`;
+  const RULES_CACHE_TTL_MS = 30 * 24 * 3600 * 1000;
+  let rules = null;
+  try {
+    const c = JSON.parse(localStorage.getItem(cacheKey));
+    if (c && c.rules && Date.now() - c.ts < RULES_CACHE_TTL_MS) rules = c.rules;
+  } catch (_) {}
+
+  if (!rules) {
+    const prompt = buildLookupPrompt(airlineCode, airlineName, cabin, origin, destination);
+    const needsSearch = !!(origin && destination);
+    const ctrl = new AbortController();
+    const timeoutMs = needsSearch ? 280000 : 60000;
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    let res;
+    try {
+      res = await fetch('/api/proxy', {
+        method: 'POST',
+        signal: ctrl.signal,
+        headers: { 'Content-Type': 'application/json', 'anthropic-version': '2023-06-01' },
+        body: JSON.stringify({
+          task: 'lookup', max_tokens: 4000, needsSearch,
+          // Any airline with a known official URL → fetch that page directly,
+          // skip the pricey web_search rounds. Search only as a fallback.
+          fetchOnly: !!BAGGAGE_LINKS[airlineCode],
+          cacheKey: `v3:${airlineCode}|${cabin}|${origin}|${destination}`,
+          messages: [{ role: 'user', content: prompt }]
+        })
+      });
+    } finally { clearTimeout(timer); }
+
+    const data = await res.json();
+    if (!res.ok || data.error) {
+      const msg = data.error?.message || `HTTP ${res.status}`;
+      if (res.status === 401 || msg.includes('API key') || msg.includes('key not valid'))
+        throw new Error('API Key 无效或已过期，请检查 Vercel 环境变量 ANTHROPIC_API_KEY');
+      if (res.status === 429 || msg.includes('quota') || msg.includes('RESOURCE_EXHAUSTED') || msg.toLowerCase().includes('rate limit'))
+        throw new Error('API 额度不足或请求过于频繁，请稍后重试');
+      throw new Error(msg);
+    }
+    const text = data.content?.[0]?.text || '';
+    if (!text) throw new Error('AI 返回空响应，请重试');
+    rules = extractJSON(text);
+    try { localStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), rules })); } catch (_) {}
+  }
+
+  rules.airline_code = airlineCode;
+  rules.airline_name_cn = airlineName;
+  rules.cabin_class = cabin;
+  // CX zones/fees come from hardcoded official matrices, overriding the AI.
+  if (airlineCode === 'CX') cxApplyZoneFees(rules, origin, destination);
+  if (allowance.free !== 'auto') rules.free_bags_per_pax = parseInt(allowance.free);
+  if (allowance.weight !== 'auto') rules.standard_weight_kg = parseFloat(allowance.weight);
+  if (airlineCode === 'CX') {
+    const freeN = parseInt(rules.free_bags_per_pax) || 2;
+    rules.max_bags_per_pax = freeN + 3;
+    if (rules.notes) {
+      rules.notes = rules.notes
+        .split(/[；;。]/)
+        .filter(seg => seg && !/最大件数|最多可购买|购买\s*3|purchase|extra piece/i.test(seg))
+        .filter(seg => !/_fee_usd|_usd|程序覆盖|被覆盖|JS\s*动态|动态渲染|字段|json/i.test(seg))
+        .map(seg => seg.trim()).filter(Boolean).join('；');
+    }
+    const capNote = `国泰计件制每人最多可购买 3 件额外行李，故每人上限 = 免费 ${freeN} 件 + 加购 3 件 = ${rules.max_bags_per_pax} 件`;
+    rules.notes = rules.notes ? `${rules.notes}；${capNote}` : capNote;
+  } else {
+    rules.max_bags_per_pax = rules.max_bags_per_pax > 0 ? rules.max_bags_per_pax : 0;
+  }
+  // Strip developer/JSON jargon from notes for ANY airline.
+  if (rules.notes) {
+    rules.notes = rules.notes
+      .split(/[；;。]/)
+      .filter(seg => seg && !/_fee_usd|_usd|_available|_concept|weight_concept|字段|json|设为|置为|标记为|true|false|null|布尔/i.test(seg))
+      .map(seg => seg.trim()).filter(Boolean).join('；');
+  }
+  rules.max_total_weight_kg = 0;
+  return rules;
+}
+
+// Gather cargo from whichever input tab has data (manual / paste / OCR).
+async function gatherCargo() {
   let items = collectItems();
   if (!items.length && activeTab === 'paste' && document.getElementById('paste-area').value.trim()) {
     await importPaste();
@@ -2823,7 +2904,14 @@ async function calculate() {
       toast(`未按箱拆分重量，已按体积占比从总重 ${importedTotalWeightKg} kg 估算每件重量用于计算`);
     }
   }
-  console.log('[2] items:', JSON.stringify(items));
+  return { items, weightEstimated };
+}
+
+// ─── Calculate ────────────────────────────────────────────
+async function calculate() {
+  if (quoteMode === 'multi') return multiCalculate();
+
+  const { items, weightEstimated } = await gatherCargo();
   if (!items.length) { showErr('请至少填写一件货物的完整尺寸和重量'); return; }
 
   const airlineEl = document.getElementById('sel-airline');
@@ -2833,7 +2921,6 @@ async function calculate() {
   const origin = document.getElementById('inp-origin').value.trim();
   const destination = document.getElementById('inp-destination').value.trim();
   const allowance = getCourierAllowance();
-  console.log('[3] airline:', airlineCode, 'cabin:', cabin, 'route:', origin, '->', destination, 'allowance:', JSON.stringify(allowance));
 
   document.getElementById('loading-card').style.display = '';
   document.getElementById('loading-airline').textContent = `${airlineCode} ${airlineName}`;
@@ -2842,167 +2929,60 @@ async function calculate() {
   document.getElementById('calc-btn').disabled = true;
 
   try {
-    // Airline fee tables change on a yearly cadence (announced in advance),
-    // so cached rules live 30 days.
-    // v3: corrected 14 official baggage-fee URLs + switched non-CX airlines to
-    // direct fetch-only + "no estimates, return null" prompt. Bumping the
-    // version retires every stale cached result (old wrong URLs / $200-type
-    // estimates) so the next lookup re-fetches from the new pages.
-    const cacheKey = `rules-cache:v3:${airlineCode}|${cabin}|${origin}|${destination}`;
-    const RULES_CACHE_TTL_MS = 30 * 24 * 3600 * 1000;
-    let rules = null;
-    try {
-      const c = JSON.parse(localStorage.getItem(cacheKey));
-      if (c && c.rules && Date.now() - c.ts < RULES_CACHE_TTL_MS) {
-        rules = c.rules;
-        console.log('[cache] rules served from localStorage, age(h):', ((Date.now() - c.ts) / 3600e3).toFixed(1));
-      }
-    } catch (_) {}
-
-    if (!rules) {
-    const prompt = buildLookupPrompt(airlineCode, airlineName, cabin, origin, destination);
-    const needsSearch = !!(origin && destination);
-    console.log('[4] lookup prompt built, length:', prompt.length, 'needsSearch:', needsSearch);
-    const ctrl = new AbortController();
-    const timeoutMs = needsSearch ? 280000 : 60000; // web-search lookups run multiple rounds and can take minutes; must stay under the function's 300s cap
-    const timer = setTimeout(() => { console.log('[TIMEOUT] abort fired'); ctrl.abort(); }, timeoutMs);
-    let res;
-    try {
-      console.log('[5] sending fetch...');
-      res = await fetch('/api/proxy', {
-        method: 'POST',
-        signal: ctrl.signal,
-        headers: {
-          'Content-Type': 'application/json',
-          'anthropic-version': '2023-06-01'
-        },
-        body: JSON.stringify({
-          task: 'lookup',
-          max_tokens: 4000,
-          needsSearch,
-          // CX zones/fees live in local tables; the AI only verifies a few
-          // facts against the official page whose URL is in the prompt, so
-          // web search is dead weight — fetch-only costs a fraction.
-          // Any airline with a known official URL → fetch that page directly
-          // and skip the expensive web_search rounds (all 24 dropdown airlines
-          // have a URL in BAGGAGE_LINKS). Search stays only as a fallback for
-          // an airline we have no URL for.
-          fetchOnly: !!BAGGAGE_LINKS[airlineCode],
-          // Shared company-wide cache key on the proxy side (Upstash Redis) —
-          // one paid lookup serves every machine for the TTL window.
-          cacheKey: `v3:${airlineCode}|${cabin}|${origin}|${destination}`,
-          messages: [{ role: 'user', content: prompt }]
-        })
-      });
-      console.log('[6] fetch returned, status:', res.status);
-    } finally {
-      clearTimeout(timer);
-    }
-
-    const data = await res.json();
-    console.log('[7] data parsed, keys:', Object.keys(data));
-
-    if (!res.ok || data.error) {
-      const msg = data.error?.message || `HTTP ${res.status}`;
-      console.error('[8] error response:', msg);
-      if (res.status === 401 || (msg.includes('API key') || msg.includes('key not valid')))
-        throw new Error('API Key 无效或已过期，请检查 Vercel 环境变量 ANTHROPIC_API_KEY');
-      if (res.status === 429 || msg.includes('quota') || msg.includes('RESOURCE_EXHAUSTED') || msg.toLowerCase().includes('rate limit'))
-        throw new Error('API 额度不足或请求过于频繁，请稍后重试');
-      throw new Error(msg);
-    }
-
-    const text = data.content?.[0]?.text || '';
-    console.log('[9] text length:', text.length, 'preview:', text.slice(0,100));
-    if (!text) throw new Error('AI 返回空响应，请重试');
-    try {
-      rules = extractJSON(text);
-      console.log('[10] JSON parsed OK, keys:', Object.keys(rules));
-    } catch (parseErr) {
-      console.error('[PARSE FAIL] raw text:\n', text);
-      throw new Error(parseErr.message + '\n\n原始响应前500字：\n' + text.slice(0, 500));
-    }
-    try { localStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), rules })); } catch (_) {}
-    }
-
-    rules.airline_code = airlineCode;
-    rules.airline_name_cn = airlineName;
-    rules.cabin_class = cabin;
-    // CX: zones resolve from the airport codes in code (AI zone fields are
-    // only a fallback for unlisted airports); the zone-pair fees then come
-    // from the hardcoded official matrices, overriding the AI's numbers.
-    if (airlineCode === 'CX') cxApplyZoneFees(rules, origin, destination);
-    // A manual override at the top takes priority over the AI's lookup for
-    // what the ticket includes — but never for weight_limit_kg, which is the
-    // airline's fixed "will not accept beyond this" policy fact, not a fare choice.
-    if (allowance.free !== 'auto') rules.free_bags_per_pax = parseInt(allowance.free);
-    if (allowance.weight !== 'auto') rules.standard_weight_kg = parseFloat(allowance.weight);
-    // Per-passenger piece cap comes from the airline's published purchase
-    // limit (looked up and cached with the rules). CX is code-enforced:
-    // at most 3 purchasable extra pieces, so total = free + 3. The user can
-    // still override via 人工调整 + 重新计算.
-    if (airlineCode === 'CX') {
-      const freeN = parseInt(rules.free_bags_per_pax) || 2;
-      rules.max_bags_per_pax = freeN + 3;
-      // The AI often bakes its own (frequently wrong) max-pieces math into
-      // notes; drop any such clause and state the code-enforced figure using
-      // the free count actually in effect after the manual override.
-      if (rules.notes) {
-        rules.notes = rules.notes
-          .split(/[；;。]/)
-          .filter(seg => seg && !/最大件数|最多可购买|购买\s*3|purchase|extra piece/i.test(seg))
-          // drop developer-facing jargon the AI sometimes leaks from the prompt
-          .filter(seg => !/_fee_usd|_usd|程序覆盖|被覆盖|JS\s*动态|动态渲染|字段|json/i.test(seg))
-          .map(seg => seg.trim())
-          .filter(Boolean)
-          .join('；');
-      }
-      const capNote = `国泰计件制每人最多可购买 3 件额外行李，故每人上限 = 免费 ${freeN} 件 + 加购 3 件 = ${rules.max_bags_per_pax} 件`;
-      rules.notes = rules.notes ? `${rules.notes}；${capNote}` : capNote;
-    } else {
-      rules.max_bags_per_pax = rules.max_bags_per_pax > 0 ? rules.max_bags_per_pax : 0;
-    }
-
-    // Strip developer/JSON jargon that occasionally leaks into notes for ANY
-    // airline (e.g. "weight_concept_available设为false") — end users shouldn't
-    // see field names, JSON, or true/false.
-    if (rules.notes) {
-      rules.notes = rules.notes
-        .split(/[；;。]/)
-        .filter(seg => seg && !/_fee_usd|_usd|_available|_concept|weight_concept|字段|json|设为|置为|标记为|true|false|null|布尔/i.test(seg))
-        .map(seg => seg.trim())
-        .filter(Boolean)
-        .join('；');
-    }
-    rules.max_total_weight_kg = 0;
-
-    const packed = packLeg(items, rules);
-    if (weightEstimated) {
-      packed.summary = '单件重量为按体积估算，非实测。' + packed.summary;
-    }
+    const rules = await lookupRules(airlineCode, airlineName, cabin, origin, destination, allowance);
+    const packed = packCouriers(items, rules);
+    if (weightEstimated) packed.summary = '单件重量为按体积估算，非实测。' + packed.summary;
     lastCalc = { items, rules, allowance };
-    // Multi-airline: record this leg for the running summary (leftover, if any,
-    // was set by packLeg). Single mode keeps the tally cleared.
-    if (quoteMode === 'multi') {
-      currentLeg = {
-        airlineCode, airlineName, cabin,
-        couriers: packed.cost.total_couriers,
-        bags: packed.cost.total_bags,
-        usd: packed.cost.total_usd,
-        tickets: ticketCap(),
-      };
-    } else {
-      currentLeg = null; multiLegs = []; currentLeftover = [];
-    }
     renderResults({ airline_rules: rules, ...packed });
-    renderMultiLeg();
-    console.log('[11] renderResults done');
-
   } catch (e) {
-    console.error('[ERR] caught:', e.message, e);
     const aborted = e.name === 'AbortError' || /abort/i.test(e.message || '');
     showErr(aborted
-      ? '查询超时——联网搜索这次跑得比较久，请再点一次计算（结果一旦查到会进缓存，之后就快了）'
+      ? '查询超时——联网这次跑得比较久，请再点一次计算（结果一旦查到会进缓存，之后就快了）'
+      : (e.message || '未知错误，请检查网络连接后重试'));
+  } finally {
+    document.getElementById('loading-card').style.display = 'none';
+    document.getElementById('calc-btn').disabled = false;
+  }
+}
+
+// ─── Multi-airline: waterfall the cargo through the airline list in order ──
+async function multiCalculate() {
+  const { items } = await gatherCargo();
+  if (!items.length) { showErr('请至少填写一件货物的完整尺寸和重量'); return; }
+  const list = collectAirlineRows();
+  if (!list.length) { showErr('请至少添加一家航司'); return; }
+  if (list.some(r => !r.tickets)) { showErr('每家航司都要填「机票数」（本航班可用飞人数）'); return; }
+  const origin = document.getElementById('inp-origin').value.trim();
+  const destination = document.getElementById('inp-destination').value.trim();
+  const autoAllowance = { free: 'auto', weight: 'auto' };
+
+  document.getElementById('results').style.display = 'none';
+  document.getElementById('err-box').style.display = 'none';
+  document.getElementById('multi-leg-card').style.display = 'none';
+  document.getElementById('loading-card').style.display = '';
+  document.getElementById('calc-btn').disabled = true;
+
+  try {
+    let remaining = items;
+    const legs = [];
+    for (let i = 0; i < list.length; i++) {
+      if (!remaining.length) break; // everything already placed on earlier airlines
+      const r = list[i];
+      document.getElementById('loading-airline').textContent = `${r.code} ${r.name}（第 ${i + 1}/${list.length} 家）`;
+      const rules = await lookupRules(r.code, r.name, r.cabin, origin, destination, autoAllowance);
+      const { result, leftoverItems } = packCapped(remaining, rules, r.tickets);
+      legs.push({
+        code: r.code, name: r.name, cabin: r.cabin, tickets: r.tickets,
+        usedCouriers: result.cost.total_couriers, bags: result.cost.total_bags, usd: result.cost.total_usd,
+      });
+      remaining = leftoverItems;
+    }
+    renderMultiSummary(legs, remaining);
+    document.getElementById('multi-leg-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  } catch (e) {
+    const aborted = e.name === 'AbortError' || /abort/i.test(e.message || '');
+    showErr(aborted
+      ? '查询超时——某家航司联网查得较久，请再点一次（查到会进缓存，之后就快了）'
       : (e.message || '未知错误，请检查网络连接后重试'));
   } finally {
     document.getElementById('loading-card').style.display = 'none';
@@ -3387,15 +3367,9 @@ function recalc() {
   rules.overweight_fee_text = `USD ${rules.overweight_fee_usd}/件`;
   rules.oversize_fee_text = `USD ${rules.oversize_fee_usd}/件`;
 
-  const packed = packLeg(lastCalc.items, rules);
+  const packed = packCouriers(lastCalc.items, rules);
   lastCalc = { ...lastCalc, rules };
-  if (quoteMode === 'multi' && currentLeg) {
-    currentLeg = { ...currentLeg,
-      couriers: packed.cost.total_couriers, bags: packed.cost.total_bags,
-      usd: packed.cost.total_usd, tickets: ticketCap() };
-  }
   renderResults({ airline_rules: rules, ...packed });
-  renderMultiLeg();
   toast('已按新数值重新计算');
 }
 
