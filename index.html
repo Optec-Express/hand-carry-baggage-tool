@@ -2399,7 +2399,7 @@ function jlBuildRules(cabin, origin, destination) {
     weight_limit_kg: strict ? 32 : 45,
     free_bags_per_pax: biz ? 3 : 2,
   };
-  rules.max_bags_per_pax = 7; // JL caps every passenger at 7 checked pieces total, all cabins/zones
+  rules.max_bags_per_pax = rules.free_bags_per_pax + 7; // JL: free allowance + 7 extra (econ/PE → 9, biz/first → 10)
   if (!zone) {
     rules.excess_bag_fee_usd = null; rules.overweight_fee_usd = null; rules.oversize_fee_usd = null;
     rules.excess_bag_fee_text = rules.overweight_fee_text = rules.oversize_fee_text = '未查到，请手动填写';
@@ -3095,7 +3095,7 @@ async function lookupRules(airlineCode, airlineName, cabin, origin, destination,
     const r = jlBuildRules(cabin, origin, destination);
     if (allowance.free !== 'auto') r.free_bags_per_pax = parseInt(allowance.free);
     if (allowance.weight !== 'auto') r.standard_weight_kg = parseFloat(allowance.weight);
-    r.max_bags_per_pax = 7; // JL hard cap: 7 checked pieces per passenger
+    r.max_bags_per_pax = (parseInt(r.free_bags_per_pax) || 0) + 7; // JL: free + 7 extra (econ 9 / biz 10)
     return r;
   }
   // v3 cache: 90-day TTL (quarterly re-check; matches the proxy's Redis TTL).
