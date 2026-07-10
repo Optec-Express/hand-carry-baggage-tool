@@ -2447,8 +2447,7 @@ const QR_LOOKUP = (() => { const m = {}; for (const k in QR_REGIONS) for (const 
 function qrRegionOf(iata) { return QR_LOOKUP[(iata || '').trim().toUpperCase()] || null; }
 
 // Weight concept per-kg USD, DIRECTIONAL origin→dest (captured from the region
-// matrix). EU→EU (40) is the one cell cut off in both screenshots — inferred
-// from the surrounding pattern; correct it if the official figure differs.
+// matrix; every cell incl. EU→EU=40 confirmed against the official table).
 const QR_WRATE = {
   EU:  { EU:40, SUB:40, SEA:40, CAS:40, JPK:50, OCE:60, GCC:25, LEV:30, IRN:30, QAT:30 },
   SUB: { EU:40, SUB:40, SEA:40, CAS:40, JPK:55, OCE:60, GCC:30, LEV:30, IRN:30, QAT:30 },
