@@ -2221,6 +2221,111 @@ function cxApplyZoneFees(rules, originIata, destIata) {
   }
 }
 
+// ── Korean Air (KE): official excess-baggage fees, hardcoded ──────────────
+// koreanair.com is bot-blocked (403 to all automated fetches), so fees can't
+// be fetched live. Captured from the official page (every zone × economy /
+// business, in USD) by the user, 2026-07. Zone is decided by the journey's two
+// endpoints; the fee is code-looked-up here, never from the AI. Extra-piece
+// fee is TIERED per courier (first paid piece vs each subsequent). Overweight
+// only bites in economy (23kg standard); business standard is 32kg so pieces
+// (capped at 32kg) never count as overweight. Max purchasable extra = 3 (like
+// CX). Oversize 203–292cm needs prior approval (not normal cargo), so the
+// acceptance ceiling stays 203cm.
+const KE_KOREA = new Set(['ICN','GMP','PUS','CJU','TAE','KWJ','USN','RSU']);
+const KE_NEASIA = new Set([ // Japan / China mainland / HK / Macao / Taiwan / Mongolia
+  'NRT','HND','KIX','ITM','NGO','FUK','CTS','OKA','HIJ','SDJ','KMJ','KOJ','OKJ','KMQ','AOJ','KMI','NGS','OIT','TAK',
+  'PEK','PKX','PVG','SHA','CAN','SZX','CTU','TFU','CKG','XIY','HGH','NKG','TSN','WUH','CSX','KMG','XMN','FOC','TAO','DLC','SHE','HRB','ZUH','CGO','HFE','KHN','NNG','SYX','HAK','WEH','YNT','TYN','CGQ',
+  'HKG','MFM','TPE','TSA','KHH','RMQ','ULN','UBN']);
+const KE_AMERICAS = new Set([ // US / Canada / Mexico / Latin America (excl Brazil)
+  'JFK','EWR','LGA','BOS','IAD','DCA','ORD','DFW','ATL','MIA','LAX','SFO','SAN','SEA','LAS','PHX','DEN','IAH','HNL','SLC','DTW','MSP','PDX','AUS','SJC','ANC','GUM',
+  'YVR','YYZ','YUL','YYC','YEG','YOW','MEX','CUN','GDL','MTY','SCL','LIM','BOG','EZE','UIO']);
+const KE_BRAZIL = new Set(['GRU','GIG','BSB','CGH','VCP']);
+const KE_EUR_ME_AF_OC = new Set([ // Europe / Middle East / Africa / Oceania
+  'LHR','LGW','MAN','EDI','DUB','CDG','ORY','FRA','MUC','BER','DUS','HAM','STR','AMS','BRU','VIE','ZRH','GVA','MXP','FCO','MAD','BCN','LIS','OPO','CPH','ARN','OSL','HEL','PRG','BUD','WAW','IST','SVO','LED','ATH',
+  'DXB','AUH','SHJ','DOH','BAH','RUH','JED','DMM','KWI','MCT','AMM','TLV','BEY',
+  'JNB','CPT','NBO','CAI','ADD','LOS',
+  'SYD','MEL','BNE','PER','ADL','CBR','OOL','CNS','AKL','CHC','WLG','NAN']);
+
+function keRegionOf(iata) {
+  const c = (iata || '').trim().toUpperCase();
+  if (!c) return null;
+  if (KE_BRAZIL.has(c)) return 'BR';
+  if (KE_AMERICAS.has(c)) return 'AM';
+  if (KE_EUR_ME_AF_OC.has(c)) return 'EU';
+  if (KE_KOREA.has(c)) return 'KR';
+  if (KE_NEASIA.has(c)) return 'NE';
+  return 'AS'; // within Asia (SE/South Asia, Guam/Palau, any unlisted Asian point)
+}
+
+// Journey (two endpoints) → KE fare-zone key.
+function keZoneOf(origin, destination) {
+  const a = keRegionOf(origin), b = keRegionOf(destination);
+  if (!a || !b) return null; // need both endpoints
+  const s = new Set([a, b]);
+  if (s.has('BR')) return 'brazil';
+  if (s.has('AM')) return 'americas';
+  if (s.has('EU')) return 'asiaEur';
+  if (s.has('KR')) return (s.has('NE') || (a === 'KR' && b === 'KR')) ? 'koreaNE' : 'withinAsia';
+  return 'withinAsia'; // NE↔NE (e.g. HKG↔Japan), NE↔AS, AS↔AS
+}
+
+// Per zone × cabin: free pieces, standard kg (overweight threshold), overweight
+// USD (economy only), oversize USD (159–203cm), and tiered extra-piece fee
+// (x1 = first paid piece per courier, xn = each subsequent).
+const KE_FEES = {
+  koreaNE:    { econ: { free:1, stdKg:23, ow:50,  os:100, x1:70,  xn:100 }, biz: { free:2, stdKg:32, ow:0, os:100, x1:100, xn:100 } },
+  withinAsia: { econ: { free:1, stdKg:23, ow:75,  os:150, x1:100, xn:150 }, biz: { free:2, stdKg:32, ow:0, os:150, x1:150, xn:150 } },
+  asiaEur:    { econ: { free:1, stdKg:23, ow:100, os:200, x1:130, xn:200 }, biz: { free:2, stdKg:32, ow:0, os:200, x1:200, xn:200 } },
+  americas:   { econ: { free:2, stdKg:23, ow:100, os:200, x1:200, xn:200 }, biz: { free:2, stdKg:32, ow:0, os:200, x1:200, xn:200 } },
+  brazil:     { econ: { free:2, stdKg:23, ow:100, os:200, x1:200, xn:200 }, biz: { free:2, stdKg:32, ow:0, os:200, x1:200, xn:200 } },
+};
+const KE_ZONE_CN = { koreaNE:'韩国↔日/中/港/台/澳/蒙', withinAsia:'亚洲内', asiaEur:'亚欧/中东/非/大洋洲', americas:'往返美洲', brazil:'往返巴西' };
+
+function keCabinKey(cabin) {
+  return (cabin === '商务舱' || cabin === '头等舱') ? 'biz' : 'econ';
+}
+
+// Build the full rules object for KE entirely from the hardcoded tables — no
+// AI lookup (and the site is bot-blocked anyway).
+function keBuildRules(cabin, origin, destination) {
+  const cabinKey = keCabinKey(cabin);
+  const zone = keZoneOf(origin, destination);
+  const rules = {
+    airline_code: 'KE', airline_name_cn: '大韩航空', cabin_class: cabin,
+    weight_limit_kg: 32, standard_linear_cm: 158, linear_limit_cm: 203,
+    length_limit_cm: null, width_limit_cm: null, height_limit_cm: null,
+    weight_concept_available: false, weight_concept_allowance_kg: null,
+    weight_concept_excess_fee_usd_per_kg: null, weight_concept_text: '',
+    max_total_weight_kg: 0,
+  };
+  if (!zone) {
+    rules.standard_weight_kg = cabinKey === 'biz' ? 32 : 23;
+    rules.free_bags_per_pax = cabinKey === 'biz' ? 2 : 1;
+    rules.max_bags_per_pax = rules.free_bags_per_pax + 3;
+    rules.excess_bag_fee_usd = null; rules.overweight_fee_usd = null; rules.oversize_fee_usd = null;
+    rules.excess_bag_fee_text = rules.overweight_fee_text = rules.oversize_fee_text = '未查到，请手动填写';
+    rules.notes = '大韩按航程区间收费，请填写始发港 / 目的港以确定区间和费率';
+    return rules;
+  }
+  const f = KE_FEES[zone][cabinKey];
+  const zoneCn = KE_ZONE_CN[zone];
+  rules.standard_weight_kg = f.stdKg;
+  rules.free_bags_per_pax = f.free;
+  rules.max_bags_per_pax = f.free + 3;
+  rules.overweight_fee_usd = f.ow;
+  rules.oversize_fee_usd = f.os;
+  rules.extra_first_fee_usd = f.x1; // per-courier tiered extra-piece fees
+  rules.extra_rest_fee_usd = f.xn;
+  rules.excess_bag_fee_usd = f.xn;  // flat fallback / strip display
+  rules.excess_bag_fee_text = f.x1 === f.xn
+    ? `USD ${f.xn}/件（${zoneCn}，官方表）`
+    : `第2件 USD ${f.x1}、第3件起 USD ${f.xn}/件（${zoneCn}，官方表）`;
+  rules.overweight_fee_text = f.ow ? `USD ${f.ow}/件（24–32kg，${zoneCn}）` : '商务舱 32kg 内不计超重';
+  rules.oversize_fee_text = `USD ${f.os}/件（159–203cm，${zoneCn}）`;
+  rules.notes = `大韩计件制：${zoneCn}、${cabinKey === 'biz' ? '商务舱' : '经济舱'}；免费 ${f.free} 件，每人最多加购 3 件（上限 ${f.free + 3} 件）。费率按官网写死，不联网。`;
+  return rules;
+}
+
 function buildLookupPrompt(airlineCode, airlineName, cabin, origin, destination) {
   const hasRoute = origin && destination;
   const routeLine = hasRoute
@@ -2615,8 +2720,21 @@ function assignAndPrice(pieces, rules, strategyLabel, totalBoxes) {
   const oversizeCost   = oversizeCount * (rules.oversize_fee_usd || 0);
   const surcharges = overweightCost + oversizeCost; // same physical violations, same fee, either concept
 
-  // Piece concept: excess billed per extra piece beyond each courier's free count
-  const pieceExcessCost = excessBags * (rules.excess_bag_fee_usd || 0);
+  // Piece concept: excess billed per extra piece beyond each courier's free
+  // count. Some airlines (e.g. Korean Air) TIER it — the first paid piece on a
+  // courier costs less than each subsequent one. When extra_first_fee_usd is
+  // set, price per courier with that tiering; otherwise it's a flat per-piece fee.
+  let pieceExcessCost;
+  if (rules.extra_first_fee_usd != null) {
+    const first = rules.extra_first_fee_usd;
+    const rest = rules.extra_rest_fee_usd != null ? rules.extra_rest_fee_usd : first;
+    pieceExcessCost = courierSlices.reduce((sum, slice) => {
+      const paid = Math.max(0, slice.length - freeBagsPerPax);
+      return sum + (paid >= 1 ? first + (paid - 1) * rest : 0);
+    }, 0);
+  } else {
+    pieceExcessCost = excessBags * (rules.excess_bag_fee_usd || 0);
+  }
   const pieceConcept = {
     label: '计件制',
     excess_bags: excessBags,
@@ -2856,6 +2974,15 @@ function renderMultiSummary(legs, leftoverItems) {
 
 // ─── Lookup one airline's finalized rules (cache → AI → code overrides) ───
 async function lookupRules(airlineCode, airlineName, cabin, origin, destination, allowance) {
+  // Korean Air: fully hardcoded (site is bot-blocked). Build from local tables,
+  // no network call — instant. Manual 免费件数 / 机票含kg overrides still apply.
+  if (airlineCode === 'KE') {
+    const r = keBuildRules(cabin, origin, destination);
+    if (allowance.free !== 'auto') r.free_bags_per_pax = parseInt(allowance.free);
+    if (allowance.weight !== 'auto') r.standard_weight_kg = parseFloat(allowance.weight);
+    r.max_bags_per_pax = (parseInt(r.free_bags_per_pax) || 0) + 3;
+    return r;
+  }
   // v3 cache: 30-day TTL. See notes at first use — bumped after URL/prompt fixes.
   const cacheKey = `rules-cache:v3:${airlineCode}|${cabin}|${origin}|${destination}`;
   const RULES_CACHE_TTL_MS = 30 * 24 * 3600 * 1000;
