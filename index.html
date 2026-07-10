@@ -2837,6 +2837,81 @@ function aaBuildRules(cabin, origin, destination) {
   return rules;
 }
 
+// ─── United Airlines (UA) hardcoded fees ──────────────────────────────────
+// Piece concept, US-hub. Captured 2026-07 from UA's own baggage-fee calculator
+// (standard published USD, main-cabin economy, general/non-member). Fee depends
+// on route zone AND bag position (1st/2nd/3rd+). Standard 23kg/158cm; overweight
+// & oversize to the zone's ceiling; over 292cm or 45kg → cargo. Business/First
+// 32kg. NOTE: UA prices are fare/season/basic-economy dependent — these are the
+// standard published rates; verify edge cases. Middle East / Africa / Turkey /
+// Israel are NOT covered (untested) and fall through to 未查到.
+const UA_REGIONS = {
+  ASIA: ['PEK','PKX','PVG','SHA','CAN','CTU','CKG','HGH','XMN','HKG','MFM','TPE','KHH','NRT','HND','KIX','NGO','ICN','GMP','PUS','BKK','DMK','SIN','KUL','CGK','DPS','MNL','CEB','HAN','SGN','RGN','PNH','DEL','BOM','BLR','MAA','HYD','CCU','DAC','KTM','CMB'],
+  EUR:  ['LHR','LGW','CDG','ORY','FRA','MUC','DUS','BER','HAM','MAD','BCN','FCO','MXP','VCE','NAP','AMS','BRU','ZRH','GVA','VIE','DUB','LIS','OPO','ATH','CPH','ARN','OSL','HEL','WAW','PRG','BUD','SVO','DME'],
+  OCE:  ['SYD','MEL','BNE','PER','ADL','AKL','CHC'],
+  SAM:  ['GRU','GIG','EZE','SCL','BOG','LIM','UIO','PTY','MVD','ASU','GEO','PBM','CCS','MAR','VLN','BLA','MUN'],
+  // NEAR = the "domestic" fee zone: US, Canada, Mexico, Caribbean (incl Cuba), Central America.
+  NEAR: ['JFK','EWR','LGA','BOS','IAD','DCA','BWI','ORD','DFW','MIA','LAX','SFO','SJC','SEA','DEN','ATL','PHX','LAS','CLT','PHL','IAH','MSP','DTW','SLC','SAN','PDX','AUS','MCO','FLL','TPA','RDU','BNA','STL','HNL','OGG','ANC','SJU','YYZ','YUL','YVR','YYC','YOW','MEX','CUN','GDL','MTY','SJD','PVR','SDQ','PUJ','STI','MBJ','KIN','NAS','GCM','AUA','CUR','SXM','BGI','POS','SJO','LIR','GUA','SAL','TGU','MGA','BZE','HAV','VRA','HOG','SNU','CFG','SCU'],
+};
+const UA_LOOKUP = (() => { const m = {}; for (const k in UA_REGIONS) for (const a of UA_REGIONS[k]) m[a] = k; return m; })();
+function uaRegionOf(iata) { return UA_LOOKUP[(iata || '').trim().toUpperCase()] || null; }
+// Route zone = the non-NEAR endpoint's region (UA routes are US-centric); both NEAR → domestic.
+function uaZoneOf(origin, destination) {
+  const a = uaRegionOf(origin), b = uaRegionOf(destination);
+  if (!a || !b) return null;
+  const s = [a, b];
+  if (s.includes('ASIA')) return 'transpacific';
+  if (s.includes('SAM'))  return 'southam';
+  if (s.includes('OCE'))  return 'oceania';
+  if (s.includes('EUR'))  return 'transatlantic';
+  return 'domestic';
+}
+// ex = [1st-excess, 2nd-excess, 3rd+]; ow = per-piece weight tiers; os = 160–292cm; maxKg = route piece ceiling; max = pieces/pax.
+const UA_FEES = {
+  domestic:      { free:0, ex:[50,60,200],   ow:[{maxKg:32,fee:100},{maxKg:45,fee:200}], os:200, maxKg:45, max:10, cn:'美国境内/加拿大/墨西哥/加勒比/中美洲' },
+  transatlantic: { free:1, ex:[120,300,300], ow:[{maxKg:32,fee:200}],                    os:200, maxKg:32, max:10, cn:'欧洲(跨大西洋)' },
+  transpacific:  { free:2, ex:[200,200,200], ow:[{maxKg:32,fee:200},{maxKg:45,fee:400}], os:200, maxKg:45, max:10, cn:'亚洲(跨太平洋)' },
+  southam:       { free:1, ex:[120,300,300], ow:[{maxKg:32,fee:200},{maxKg:45,fee:400}], os:200, maxKg:45, max:10, cn:'南美' },
+  oceania:       { free:1, ex:[120,300,300], ow:[{maxKg:32,fee:200}],                    os:200, maxKg:32, max:10, cn:'大洋洲(澳/新)' },
+};
+
+function uaBuildRules(cabin, origin, destination) {
+  const biz = (cabin === '商务舱' || cabin === '头等舱');
+  const first = (cabin === '头等舱');
+  const zone = uaZoneOf(origin, destination);
+  const rules = {
+    airline_code: 'UA', airline_name_cn: '美国联合航空', cabin_class: cabin,
+    standard_linear_cm: 158, linear_limit_cm: 292, length_limit_cm: null, width_limit_cm: null, height_limit_cm: null,
+    weight_concept_available: false, weight_concept_allowance_kg: null,
+    weight_concept_excess_fee_usd_per_kg: null, weight_concept_text: '',
+    max_total_weight_kg: 0, piece_concept_available: true,
+    standard_weight_kg: biz ? 32 : 23,
+  };
+  if (!zone) {
+    rules.weight_limit_kg = 45; rules.free_bags_per_pax = biz ? 2 : 1; rules.max_bags_per_pax = 10;
+    rules.excess_bag_fee_usd = null; rules.overweight_fee_usd = null; rules.oversize_fee_usd = null;
+    rules.excess_bag_fee_text = rules.overweight_fee_text = rules.oversize_fee_text = '未查到，请手动填写';
+    rules.notes = '美联航按航线区间计费，该港口所属地区未收录（中东/非洲/土耳其/以色列等未测），请手动填写费率';
+    return rules;
+  }
+  const f = UA_FEES[zone];
+  rules.weight_limit_kg = f.maxKg;
+  rules.free_bags_per_pax = first ? 3 : (biz ? 2 : f.free);
+  rules.max_bags_per_pax = f.max;
+  rules.extra_first_fee_usd = f.ex[0];
+  rules.extra_second_fee_usd = f.ex[1];
+  rules.extra_rest_fee_usd = f.ex[2];
+  rules.excess_bag_fee_usd = f.ex[2];
+  rules.excess_bag_fee_text = `超免费额度后：第1件 USD ${f.ex[0]}、第2件 USD ${f.ex[1]}、之后每件 USD ${f.ex[2]}（${f.cn}）`;
+  rules.overweight_fee_tiers = f.ow;
+  rules.overweight_fee_usd = f.ow[0].fee;
+  rules.overweight_fee_text = f.ow.map(t => `≤${t.maxKg}kg USD ${t.fee}`).join(' / ') + `（超重，${f.cn}）`;
+  rules.oversize_fee_usd = f.os;
+  rules.oversize_fee_text = `USD ${f.os}/件（160–292cm，${f.cn}）`;
+  rules.notes = `美联航计件制：${f.cn}、${first ? '头等' : biz ? '商务' : '经济主舱'}；免费 ${rules.free_bags_per_pax} 件×${rules.standard_weight_kg}kg，单件最重 ${f.maxKg}kg、最大 292cm，每人最多 ${f.max} 件。⚠ 费率按主舱标准公布价，基础经济舱/旺季可能更高，以官网为准。`;
+  return rules;
+}
+
 function buildLookupPrompt(airlineCode, airlineName, cabin, origin, destination) {
   const hasRoute = origin && destination;
   const routeLine = hasRoute
@@ -3560,6 +3635,13 @@ async function lookupRules(airlineCode, airlineName, cabin, origin, destination,
   // American Airlines: piece concept, hardcoded (US-hub, zone × bag position).
   if (airlineCode === 'AA') {
     const r = aaBuildRules(cabin, origin, destination);
+    if (allowance.free !== 'auto') r.free_bags_per_pax = parseInt(allowance.free);
+    if (allowance.weight !== 'auto') r.standard_weight_kg = parseFloat(allowance.weight);
+    return r;
+  }
+  // United Airlines: piece concept, hardcoded (US-hub, zone × bag position).
+  if (airlineCode === 'UA') {
+    const r = uaBuildRules(cabin, origin, destination);
     if (allowance.free !== 'auto') r.free_bags_per_pax = parseInt(allowance.free);
     if (allowance.weight !== 'auto') r.standard_weight_kg = parseFloat(allowance.weight);
     return r;
