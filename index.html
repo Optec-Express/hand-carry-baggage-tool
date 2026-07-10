@@ -2322,7 +2322,7 @@ function keBuildRules(cabin, origin, destination) {
     : `第2件 USD ${f.x1}、第3件起 USD ${f.xn}/件（${zoneCn}，官方表）`;
   rules.overweight_fee_text = f.ow ? `USD ${f.ow}/件（24–32kg，${zoneCn}）` : '商务舱 32kg 内不计超重';
   rules.oversize_fee_text = `USD ${f.os}/件（159–203cm，${zoneCn}）`;
-  rules.notes = `大韩计件制：${zoneCn}、${cabinKey === 'biz' ? '商务舱' : '经济舱'}；免费 ${f.free} 件，每人最多加购 3 件（上限 ${f.free + 3} 件）。费率按官网写死，不联网。`;
+  rules.notes = `大韩计件制：${zoneCn}、${cabinKey === 'biz' ? '商务舱' : '经济舱'}；免费 ${f.free} 件，每人最多加购 3 件（上限 ${f.free + 3} 件）。`;
   return rules;
 }
 
