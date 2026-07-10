@@ -2764,8 +2764,10 @@ const AA_REGIONS = {
   ASIA: ['PEK','PKX','PVG','SHA','CAN','CTU','CKG','HGH','XMN','HKG','MFM','TPE','KHH','NRT','HND','KIX','NGO','ICN','GMP','PUS','BKK','DMK','SIN','KUL','CGK','DPS','MNL','CEB','HAN','SGN','RGN','PNH','DEL','BOM','BLR','MAA','HYD','CCU','DAC','KTM','CMB'],
   EUR:  ['LHR','LGW','CDG','ORY','FRA','MUC','DUS','BER','HAM','MAD','BCN','FCO','MXP','VCE','NAP','AMS','BRU','ZRH','GVA','VIE','DUB','LIS','OPO','ATH','IST','SAW','CPH','ARN','OSL','HEL','WAW','PRG','BUD','SVO','DME','TLV','DOH'],
   OCE:  ['SYD','MEL','BNE','PER','ADL','AKL','CHC'],
+  CUBA: ['HAV','VRA','HOG','SNU','CFG','SCU'],
+  VEN:  ['CCS','MAR','VLN','BLA','MUN'],
   SAM:  ['GRU','GIG','EZE','SCL','BOG','LIM','UIO','PTY','MVD','ASU','GEO','PBM'],
-  CARIB:['MEX','CUN','GDL','MTY','SJD','PVR','HAV','SDQ','PUJ','STI','MBJ','KIN','NAS','GCM','AUA','CUR','SXM','BGI','POS','SJO','LIR','GUA','SAL','TGU','MGA','BZE','PTY2'],
+  CARIB:['MEX','CUN','GDL','MTY','SJD','PVR','SDQ','PUJ','STI','MBJ','KIN','NAS','GCM','AUA','CUR','SXM','BGI','POS','SJO','LIR','GUA','SAL','TGU','MGA','BZE'],
   US:   ['JFK','EWR','LGA','BOS','IAD','DCA','BWI','ORD','DFW','MIA','LAX','SFO','SJC','SEA','DEN','ATL','PHX','LAS','CLT','PHL','IAH','MSP','DTW','SLC','SAN','PDX','AUS','MCO','FLL','TPA','RDU','BNA','STL','HNL','OGG','ANC','SJU','YYZ','YUL','YVR','YYC','YOW'],
 };
 const AA_REGION_CN = { ASIA:'亚洲(跨太平洋)', EUR:'欧洲/以色列/卡塔尔(跨大西洋)', OCE:'澳/新', SAM:'中南美/巴拿马', CARIB:'墨西哥/加勒比/中美洲', US:'美国/加拿大境内' };
@@ -2779,6 +2781,8 @@ function aaZoneOf(origin, destination) {
   if (s.includes('ASIA')) return 'transpacific';
   if (s.includes('EUR')) return 'transatlantic';
   if (s.includes('OCE')) return 'oceania';
+  if (s.includes('CUBA')) return 'cuba';
+  if (s.includes('VEN')) return 'venezuela';
   if (s.includes('SAM')) return 'southam';
   if (s.includes('CARIB')) return 'carib';
   return 'nam';
@@ -2791,6 +2795,9 @@ const AA_FEES = {
   southam:      { free:1, ex:[100,200,200], ow:[{maxKg:24,fee:30},{maxKg:32,fee:100},{maxKg:45,fee:200}], os:150, maxKg:45, max:5, cn:'中南美' },
   carib:        { free:0, ex:[50,60,200],   ow:[{maxKg:24,fee:30},{maxKg:32,fee:100},{maxKg:45,fee:200}], os:200, maxKg:45, max:5, cn:'墨西哥/加勒比/中美' },
   nam:          { free:0, ex:[50,60,200],   ow:[{maxKg:24,fee:30},{maxKg:32,fee:100},{maxKg:45,fee:200}], os:200, maxKg:45, max:10, cn:'美国/加拿大境内' },
+  // Cuba / Venezuela: heavier overweight and a hard 32kg ceiling (over 32kg not accepted)
+  cuba:         { free:2, ex:[200,200,200],  ow:[{maxKg:24,fee:30},{maxKg:32,fee:200}], os:200, maxKg:32, max:5, cn:'古巴' },
+  venezuela:    { free:1, ex:[100,200,200],  ow:[{maxKg:24,fee:30},{maxKg:32,fee:150}], os:150, maxKg:32, max:5, cn:'委内瑞拉' },
 };
 
 function aaBuildRules(cabin, origin, destination) {
