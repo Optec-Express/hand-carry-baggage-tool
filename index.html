@@ -2662,22 +2662,55 @@ const LH_EUROPE = new Set([
   'CMN','RAK','ALG','TUN','ASB', // Morocco / Algeria / Tunisia + Ashgabat (LH applies Europe rules)
   'MLA','LCA','GIB', // Malta / Cyprus / Gibraltar
 ]);
+// Intercontinental sub-regions (the non-Europe endpoint decides the zone).
+// LH prices each continent differently, so they're separate zones.
+const LH_FE = new Set([ // Far East: China/HK/Japan/Korea/SE-Asia
+  'PEK','PKX','PVG','SHA','CAN','CTU','CKG','HGH','XMN','SZX','NKG','WUH','CSX','HKG','MFM','TPE','KHH',
+  'NRT','HND','KIX','NGO','ICN','GMP','PUS','BKK','DMK','HKT','SIN','KUL','PEN','CGK','DPS','SUB','MNL','CEB','HAN','SGN','RGN','PNH','REP','VTE']);
+const LH_ME = new Set([ // Middle East: Gulf / Israel / Iran / Iraq / Jordan / Lebanon
+  'DXB','AUH','SHJ','DOH','BAH','KWI','MCT','RUH','JED','DMM','MED','TLV','AMM','BEY','BGW','BSR','EBL','NJF','IKA','THR','MHD']);
+const LH_SASIA = new Set([ // Indian subcontinent
+  'DEL','BOM','BLR','MAA','HYD','CCU','COK','TRV','AMD','GOI','DAC','KTM','CMB','MLE','KHI','LHE','ISB']);
+const LH_NAM = new Set([ // North America (incl. Mexico)
+  'JFK','EWR','BOS','IAD','DCA','ORD','DFW','IAH','ATL','MIA','LAX','SFO','SEA','DEN','MSP','CLT','SJC','SAN','YYZ','YUL','YVR','YYC','MEX','CUN']);
+const LH_SAM = new Set([ // Central / South America
+  'GRU','GIG','EZE','SCL','BOG','LIM','PTY','UIO','MVD','ASU']);
+const LH_AFR = new Set([ // Sub-Saharan Africa (N. Africa is priced as Europe)
+  'JNB','CPT','NBO','ADD','LOS','ABV','ACC','DAR','LAD','WDH','MRU','SEZ','LUN','HRE','EBB','DKR','ABJ']);
+function lhRegionOf(iata) {
+  const c = (iata || '').trim().toUpperCase();
+  if (!c) return null;
+  if (LH_EUROPE.has(c)) return 'europe';
+  if (LH_FE.has(c)) return 'FE';
+  if (LH_ME.has(c)) return 'ME';
+  if (LH_SASIA.has(c)) return 'SASIA';
+  if (LH_NAM.has(c)) return 'NAM';
+  if (LH_SAM.has(c)) return 'SAM';
+  if (LH_AFR.has(c)) return 'AFR';
+  return null;
+}
+// Journey → zone: both Europe = europe; else the non-Europe endpoint's region.
 function lhZoneOf(origin, destination) {
-  const a = (origin || '').trim().toUpperCase(), b = (destination || '').trim().toUpperCase();
+  const a = lhRegionOf(origin), b = lhRegionOf(destination);
   if (!a || !b) return null;
-  return (LH_EUROPE.has(a) && LH_EUROPE.has(b)) ? 'europe' : 'intercont';
+  if (a === 'europe' && b === 'europe') return 'europe';
+  if (a === 'europe') return b;
+  if (b === 'europe') return a;
+  return b; // neither endpoint in Europe (rare on LH) — use destination region
 }
 // Per zone (WEBSITE prices): tiered extra-piece (first / rest ≤23kg ≤158cm) and
 // a surcharge added when a piece is 24–32kg and/or 159–292cm. Additive model:
-// a heavy extra piece ≈ extraRest + over. intercont pending official figures.
+// a heavy extra piece ≈ extraRest + over. null = not yet captured (returns 未查到).
 const LH_FEES = {
-  europe:   { extraFirst: 50, extraRest: 80,  over: 75 },
-  // Intercontinental: captured from FRA↔HKG (Far East). Assumed uniform across
-  // all intercontinental destinations — verify against FRA↔JFK etc. and split
-  // by continent if they differ.
-  intercont: { extraFirst: 75, extraRest: 235, over: 230 },
+  europe: { extraFirst: 50, extraRest: 80,  over: 75 },  // FRA↔LHR
+  FE:     { extraFirst: 75, extraRest: 235, over: 230 }, // FRA↔HKG
+  ME:     { extraFirst: 75, extraRest: 145, over: 145 }, // FRA↔DXB
+  SASIA:  null, // pending FRA↔DEL
+  NAM:    null, // pending FRA↔JFK
+  SAM:    null, // pending FRA↔GRU
+  AFR:    null, // pending FRA↔JNB
 };
-const LH_ZONE_CN = { europe: '欧洲境内', intercont: '洲际' };
+const LH_ZONE_CN = { europe: '欧洲境内', FE: '欧洲↔远东', ME: '欧洲↔中东', SASIA: '欧洲↔南亚', NAM: '欧洲↔北美', SAM: '欧洲↔中南美', AFR: '欧洲↔非洲' };
 
 function lhBuildRules(cabin, origin, destination) {
   const biz = (cabin === '商务舱' || cabin === '头等舱');
@@ -2699,9 +2732,9 @@ function lhBuildRules(cabin, origin, destination) {
     // no route, or intercontinental (fees not yet captured)
     rules.excess_bag_fee_usd = null; rules.overweight_fee_usd = null; rules.oversize_fee_usd = null;
     rules.excess_bag_fee_text = rules.overweight_fee_text = rules.oversize_fee_text = '未查到，请手动填写';
-    rules.notes = zone === 'intercont'
-      ? '汉莎洲际航线费率尚未录入（需官网行李计算器截图），请手动填写费率，或改用欧洲境内航线'
-      : '汉莎按航段区间收费，请填写始发港 / 目的港以确定区间';
+    rules.notes = (zone && LH_ZONE_CN[zone])
+      ? `汉莎「${LH_ZONE_CN[zone]}」这一区的费率尚未录入（需该区行李计算器截图），请手动填写费率`
+      : '汉莎按航段区间收费，请填写有效的始发港 / 目的港以确定区间';
     return rules;
   }
   const zoneCn = LH_ZONE_CN[zone];
