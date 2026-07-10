@@ -2706,7 +2706,7 @@ const LH_FEES = {
   FE:     { extraFirst: 75, extraRest: 235, over: 230 }, // FRA↔HKG
   ME:     { extraFirst: 75, extraRest: 145, over: 145 }, // FRA↔DXB
   SASIA:  { extraFirst: 75, extraRest: 190, over: 185 }, // FRA↔DEL
-  NAM:    null, // pending FRA↔JFK
+  NAM:    { extraFirst: 75, extraSecond: 100, extraRest: 190, over: 185 }, // FRA↔JFK (distinct 2nd-piece tier)
   SAM:    { extraFirst: 75, extraSecond: 165, extraRest: 235, over: 230 }, // FRA↔GRU (distinct 2nd-piece tier)
   AFR:    null, // pending FRA↔JNB
 };
