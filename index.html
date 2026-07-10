@@ -2504,7 +2504,7 @@ function qrBuildRules(cabin, origin, destination) {
   if (piece) {
     const col = qrPieceColumn(o, d);
     const f = QR_PIECE[col][biz ? 'biz' : 'econ'];
-    rules.standard_linear_cm = 158; rules.linear_limit_cm = 300; // 158–300cm accepted with oversize fee
+    rules.standard_linear_cm = 158; rules.linear_limit_cm = 158; // Africa/Americas: single piece max 158cm, over → cargo
     rules.standard_weight_kg = biz ? 32 : 23;
     rules.free_bags_per_pax = 2;
     rules.max_bags_per_pax = 2 + 10; // QR sells up to 10 extra pieces (narrowbody); widebody allows more
@@ -2519,7 +2519,7 @@ function qrBuildRules(cabin, origin, destination) {
   }
   // Weight concept
   const rate = qrWeightRate(o, d);
-  rules.standard_linear_cm = 158; rules.linear_limit_cm = 158; // over 158cm must be split
+  rules.standard_linear_cm = 300; rules.linear_limit_cm = 300; // non-Africa/Americas: single piece max 300cm, no oversize fee (billed by kg), over → cargo
   rules.standard_weight_kg = 32; // per-piece ceiling; excess is billed by total kg, not per-piece overweight
   rules.free_bags_per_pax = 2;   // informational; weight concept caps by kg, not piece count
   rules.max_bags_per_pax = 10;
@@ -2533,8 +2533,8 @@ function qrBuildRules(cabin, origin, destination) {
   rules.overweight_fee_usd = 0; // no separate per-piece overweight under weight concept
   rules.overweight_fee_text = '按公斤计';
   rules.oversize_fee_usd = null;
-  rules.oversize_fee_text = '单件超 158cm 须拆分';
-  rules.notes = `卡塔尔计重制：${QR_REGION_CN[o]}→${QR_REGION_CN[d]}，超出免费额度部分每公斤 USD ${rate}；免费额度 ${rules.weight_concept_allowance_kg}kg（${first ? '头等' : biz ? '商务' : '经济默认，可按实际机票在「机票含kg」改'}）。单件≤32kg、≤158cm。`;
+  rules.oversize_fee_text = '单件超 300cm 须走货运';
+  rules.notes = `卡塔尔计重制：${QR_REGION_CN[o]}→${QR_REGION_CN[d]}，超出免费额度部分每公斤 USD ${rate}；免费额度 ${rules.weight_concept_allowance_kg}kg（${first ? '头等' : biz ? '商务' : '经济默认，可按实际机票在「机票含kg」改'}）。单件≤32kg、≤300cm。`;
   return rules;
 }
 
