@@ -2912,6 +2912,73 @@ function uaBuildRules(cabin, origin, destination) {
   return rules;
 }
 
+// ─── All Nippon Airways (NH / ANA) hardcoded fees ─────────────────────────
+// Piece concept, Japan-hub. Captured 2026-07 from ANA's official published fee
+// table (NOT a per-route calculator — figures are the authoritative USD/JPY
+// numbers). Fee depends only on route TYPE: cross-region / within-region /
+// within-Japan. ANA's 3 regions: R1=Americas+Hawaii, R2=Europe+Africa+MidEast,
+// R3=Asia(incl Japan)+Oceania. Standard 23kg(econ/PE) / 32kg(biz/first), 158cm;
+// per-piece ceiling 45kg & 292cm (over → cargo); max 20 pieces/pax.
+// Japan-domestic fees are JPY-only on the official page — converted here at a
+// rough ¥150≈$1 and flagged; cross/within fees are published in USD directly.
+const NH_REGIONS = {
+  JP: ['NRT','HND','KIX','ITM','NGO','CTS','FUK','OKA','KOJ','HIJ','SDJ','KMJ','NGS','OIT','TAK','MYJ','AXT','AOJ','KMQ','FSZ','TOY','OKJ','HKD','KMI','ISG','MMY','KKJ','UBJ','NKM'],
+  R3: ['PEK','PKX','PVG','SHA','CAN','CTU','CKG','HGH','XMN','HKG','MFM','TPE','KHH','ICN','GMP','PUS','BKK','DMK','HKT','SIN','KUL','CGK','DPS','MNL','CEB','HAN','SGN','RGN','PNH','DEL','BOM','BLR','MAA','HYD','CCU','DAC','KTM','CMB','SYD','MEL','BNE','PER','ADL','AKL','CHC'],
+  R2: ['LHR','LGW','CDG','ORY','FRA','MUC','DUS','BER','HAM','MAD','BCN','FCO','MXP','VCE','NAP','AMS','BRU','ZRH','GVA','VIE','DUB','LIS','OPO','ATH','IST','SAW','CPH','ARN','OSL','HEL','WAW','PRG','BUD','SVO','DME','TLV','DOH','DXB','AUH','JED','RUH','KWI','BAH','AMM','BEY','MCT','JNB','CPT','DUR','CAI','NBO','ADD','LOS','ABV','ACC','DAR','DKR','CMN','TUN','ALG','LAD','EBB','KGL'],
+  R1: ['JFK','EWR','LGA','BOS','IAD','DCA','BWI','ORD','DFW','MIA','LAX','SFO','SJC','SEA','DEN','ATL','PHX','LAS','CLT','PHL','IAH','MSP','DTW','SLC','SAN','PDX','AUS','MCO','FLL','TPA','RDU','BNA','STL','HNL','OGG','ANC','SJU','YYZ','YUL','YVR','YYC','YOW','MEX','CUN','GDL','MTY','SJD','PVR','SDQ','PUJ','STI','MBJ','KIN','NAS','GCM','AUA','CUR','SXM','BGI','POS','SJO','LIR','GUA','SAL','TGU','MGA','BZE','GRU','GIG','EZE','SCL','BOG','LIM','UIO','PTY','MVD','ASU','GEO','PBM','HAV','VRA','HOG','SNU','CFG','SCU','CCS','MAR','VLN','BLA','MUN'],
+};
+const NH_LOOKUP = (() => { const m = {}; for (const k in NH_REGIONS) for (const a of NH_REGIONS[k]) m[a] = k; return m; })();
+function nhRegionOf(iata) { return NH_LOOKUP[(iata || '').trim().toUpperCase()] || null; }
+// Zone by route type: both Japan → japandom; same region → within; else cross. (JP counts as R3 for the region comparison.)
+function nhZoneOf(origin, destination) {
+  const a = nhRegionOf(origin), b = nhRegionOf(destination);
+  if (!a || !b) return null;
+  if (a === 'JP' && b === 'JP') return 'japandom';
+  const ga = a === 'JP' ? 'R3' : a, gb = b === 'JP' ? 'R3' : b;
+  return ga === gb ? 'within' : 'cross';
+}
+// exc = per-excess-piece fee (flat, not position-tiered); ow = weight tiers; os = 158–292cm oversize.
+const NH_FEES = {
+  cross:    { exc:200, ow:[{maxKg:32,fee:60},{maxKg:45,fee:200}], os:200, cn:'跨地区(如日↔美/欧)' },
+  within:   { exc:100, ow:[{maxKg:32,fee:60},{maxKg:45,fee:200}], os:200, cn:'同地区内(如日↔亚洲/大洋洲)' },
+  // Japan-domestic: official fees are JPY-only (¥5000 piece, ¥1000/¥5000 overweight, ¥5000 oversize); ≈ at ¥150/$1.
+  japandom: { exc:33,  ow:[{maxKg:32,fee:7},{maxKg:45,fee:33}],   os:33,  cn:'日本境内(￥价粗折)' },
+};
+
+function nhBuildRules(cabin, origin, destination) {
+  const biz = (cabin === '商务舱' || cabin === '头等舱');
+  const first = (cabin === '头等舱');
+  const zone = nhZoneOf(origin, destination);
+  const rules = {
+    airline_code: 'NH', airline_name_cn: '全日空', cabin_class: cabin,
+    standard_linear_cm: 158, linear_limit_cm: 292, length_limit_cm: null, width_limit_cm: null, height_limit_cm: null,
+    weight_concept_available: false, weight_concept_allowance_kg: null,
+    weight_concept_excess_fee_usd_per_kg: null, weight_concept_text: '',
+    max_total_weight_kg: 0, piece_concept_available: true,
+    standard_weight_kg: biz ? 32 : 23, weight_limit_kg: 45,
+    free_bags_per_pax: first ? 3 : 2, max_bags_per_pax: 20,
+  };
+  if (!zone) {
+    rules.excess_bag_fee_usd = null; rules.overweight_fee_usd = null; rules.oversize_fee_usd = null;
+    rules.excess_bag_fee_text = rules.overweight_fee_text = rules.oversize_fee_text = '未查到，请手动填写';
+    rules.notes = '全日空按航线类型(跨区/区内/日本境内)计费，无法识别该港口所属地区，请手动填写费率';
+    return rules;
+  }
+  const f = NH_FEES[zone];
+  rules.extra_first_fee_usd = f.exc;
+  rules.extra_second_fee_usd = f.exc;
+  rules.extra_rest_fee_usd = f.exc;
+  rules.excess_bag_fee_usd = f.exc;
+  rules.excess_bag_fee_text = `超免费额度后每件 USD ${f.exc}（${f.cn}）`;
+  rules.overweight_fee_tiers = f.ow;
+  rules.overweight_fee_usd = f.ow[0].fee;
+  rules.overweight_fee_text = f.ow.map(t => `≤${t.maxKg}kg USD ${t.fee}`).join(' / ') + `（超重，${f.cn}）`;
+  rules.oversize_fee_usd = f.os;
+  rules.oversize_fee_text = `USD ${f.os}/件（158–292cm，${f.cn}）`;
+  rules.notes = `全日空计件制：${f.cn}、${first ? '头等' : biz ? '商务' : '经济/超经'}；免费 ${rules.free_bags_per_pax} 件×${rules.standard_weight_kg}kg，单件最重 45kg、最大 292cm，每人最多 20 件。⚠ 免费件数随票价规则浮动(0–2件)，日本境内费用按 ¥150≈$1 粗折，均以官网/机票为准。`;
+  return rules;
+}
+
 function buildLookupPrompt(airlineCode, airlineName, cabin, origin, destination) {
   const hasRoute = origin && destination;
   const routeLine = hasRoute
@@ -3642,6 +3709,13 @@ async function lookupRules(airlineCode, airlineName, cabin, origin, destination,
   // United Airlines: piece concept, hardcoded (US-hub, zone × bag position).
   if (airlineCode === 'UA') {
     const r = uaBuildRules(cabin, origin, destination);
+    if (allowance.free !== 'auto') r.free_bags_per_pax = parseInt(allowance.free);
+    if (allowance.weight !== 'auto') r.standard_weight_kg = parseFloat(allowance.weight);
+    return r;
+  }
+  // All Nippon Airways: piece concept, hardcoded (Japan-hub, route-type × region).
+  if (airlineCode === 'NH') {
+    const r = nhBuildRules(cabin, origin, destination);
     if (allowance.free !== 'auto') r.free_bags_per_pax = parseInt(allowance.free);
     if (allowance.weight !== 'auto') r.standard_weight_kg = parseFloat(allowance.weight);
     return r;
