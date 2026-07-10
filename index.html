@@ -1343,7 +1343,7 @@ body {
     <div class="loading-card">
       <div class="spinner"></div>
       <p>AI 正在查询 <strong id="loading-airline"></strong> 行李规则并计算最优装箱方案…</p>
-      <p class="sub-msg">该航线首次查询需联网核对航司官网，约 1–3 分钟；之后 30 天内全公司秒出，请耐心等这一次</p>
+      <p class="sub-msg">该航线首次查询需联网核对航司官网，约 1–3 分钟；之后 90 天内全公司秒出，请耐心等这一次</p>
     </div>
   </div>
 
@@ -2983,9 +2983,9 @@ async function lookupRules(airlineCode, airlineName, cabin, origin, destination,
     r.max_bags_per_pax = (parseInt(r.free_bags_per_pax) || 0) + 3;
     return r;
   }
-  // v3 cache: 30-day TTL. See notes at first use — bumped after URL/prompt fixes.
+  // v3 cache: 90-day TTL (quarterly re-check; matches the proxy's Redis TTL).
   const cacheKey = `rules-cache:v3:${airlineCode}|${cabin}|${origin}|${destination}`;
-  const RULES_CACHE_TTL_MS = 30 * 24 * 3600 * 1000;
+  const RULES_CACHE_TTL_MS = 90 * 24 * 3600 * 1000;
   let rules = null;
   try {
     const c = JSON.parse(localStorage.getItem(cacheKey));
