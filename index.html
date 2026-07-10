@@ -2749,7 +2749,7 @@ function lhBuildRules(cabin, origin, destination) {
   rules.overweight_fee_text = `USD ${f.over}/件（24–32kg，${zoneCn}）`;
   rules.oversize_fee_usd = f.over;
   rules.oversize_fee_text = `USD ${f.over}/件（159–292cm，${zoneCn}）`;
-  rules.notes = `汉莎计件制：${zoneCn}、${first ? '头等' : biz ? '商务' : '经济'}；免费 ${rules.free_bags_per_pax} 件×${rules.standard_weight_kg}kg，加件首件 USD ${f.extraFirst}/之后 USD ${f.extraRest}。单件≤32kg、≤292cm。⚠ 汉莎费率为「行李计算器」网站价，仅供参考，实际请以官网查询/值机柜台为准（柜台更贵）。`;
+  rules.notes = `汉莎计件制：${zoneCn}、${first ? '头等' : biz ? '商务' : '经济'}；免费 ${rules.free_bags_per_pax} 件×${rules.standard_weight_kg}kg，加件首件 USD ${f.extraFirst}/之后 USD ${f.extraRest}。单件≤32kg、≤292cm。⚠ 汉莎费率为「行李计算器」网站价，仅供参考，实际请以官网查询为准。`;
   return rules;
 }
 
