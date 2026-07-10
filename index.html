@@ -2539,6 +2539,104 @@ function qrBuildRules(cabin, origin, destination) {
   return rules;
 }
 
+// ─── Emirates (EK) hardcoded fees ──────────────────────────────────────────
+// Captured from the official page 2026-07. Like Qatar, EK is DUAL: PIECE
+// concept only for routes touching Africa or the Americas; WEIGHT concept
+// (per-kg, 4-region matrix) for all other routes. Hong Kong is in EK's 远东
+// (Far East) region. Per-piece hard cap 32kg; weight routes ≤203cm, piece
+// routes ≤150cm free / 150–203cm oversize fee / >203cm cargo. Weight routes:
+// up to 50kg extra purchasable per pax, so per-courier weight caps at free+50.
+const EK_REGIONS = {
+  AFR: ['ALG','LAD','ABJ','CAI','ADD','ACC','CKY','NBO','TIP','TNR','MRU','CMN','RAK','LOS','ABV','DKR','SEZ','JNB','CPT','DUR','KRT','DAR','TUN','EBB','LUN','HRE','FIH','JIB','ASM','MGQ','JUB'],
+  AMR: ['EZE','GRU','GIG','YYZ','YUL','YVR','SCL','BOG','JFK','EWR','BOS','IAD','ORD','DFW','IAH','LAX','SFO','SEA','MIA'],
+  MESA: ['DXB','AUH','SHJ','DWC','BAH','IKA','THR','BGW','BSR','EBL','AMM','KWI','BEY','MCT','SLL','DOH','RUH','JED','DMM','MED','TLV','KHI','LHE','ISB','DEL','BOM','BLR','MAA','HYD','CCU','COK','TRV','AMD','GOI','DAC','CMB','MLE','KTM','KBL','ALA','NQZ','FRU','DYU','ASB'],
+  FE: ['PNH','REP','PEK','PKX','PVG','SHA','CAN','CTU','CKG','HGH','XMN','HKG','MFM','CGK','DPS','SUB','NRT','HND','KIX','NGO','KUL','PEN','BKI','RGN','MNL','CEB','SIN','ICN','GMP','PUS','TPE','KHH','BKK','HKT','DMK','HAN','SGN'],
+  EUR: ['VIE','BRU','ZAG','LCA','PRG','CPH','CDG','ORY','LYS','NCE','FRA','MUC','DUS','HAM','BER','ATH','BUD','DUB','FCO','MXP','VCE','MLA','AMS','OSL','WAW','LIS','OPO','SVO','DME','VKO','LED','MAD','BCN','ARN','GVA','ZRH','IST','SAW','KBP','LHR','LGW','MAN','BHX','GLA','NCL','EVN','GYD','SJJ','SOF','TBS','SKP','TGD','OTP','BEG','BTS','HEL'],
+  ANZ: ['SYD','MEL','BNE','PER','ADL','AKL','CHC'],
+};
+const EK_REGION_CN = { MESA:'中东/南亚', FE:'远东', EUR:'欧洲', ANZ:'澳新', AFR:'非洲', AMR:'美洲' };
+const EK_ROUTE_CN = { africa:'往返非洲', americas:'往返美洲' };
+const EK_LOOKUP = (() => { const m = {}; for (const k in EK_REGIONS) for (const a of EK_REGIONS[k]) m[a] = k; return m; })();
+function ekRegionOf(iata) { return EK_LOOKUP[(iata || '').trim().toUpperCase()] || null; }
+
+// Weight concept per-kg USD (symmetric), keys MESA / FE / EUR / ANZ.
+const EK_WRATE = {
+  MESA: { MESA:15, FE:25, EUR:25, ANZ:40 },
+  FE:   { MESA:25, FE:15, EUR:30, ANZ:30 },
+  EUR:  { MESA:25, FE:30, EUR:40, ANZ:50 },
+  ANZ:  { MESA:40, FE:30, EUR:50, ANZ:15 },
+};
+// Piece concept: USD per extra piece, by route direction (to/from Africa or
+// Americas) × the other endpoint's region. Canada's own CAD column is folded
+// into the Americas USD row (couriers quote in USD).
+const EK_PIECE = {
+  africa:   { MESA:250, AFR:250, FE:300, EUR:250, ANZ:300, AMR:200 },
+  americas: { MESA:225, AFR:200, FE:250, EUR:100, ANZ:250, AMR:100 },
+};
+function ekPieceRoute(o, d) {
+  if (o === 'AFR' || d === 'AFR') return { row:'africa',   col: (o === 'AFR' ? (d === 'AFR' ? 'AFR' : d) : o) };
+  return { row:'americas', col: (o === 'AMR' ? (d === 'AMR' ? 'AMR' : d) : o) };
+}
+
+function ekBuildRules(cabin, origin, destination) {
+  const biz = (cabin === '商务舱' || cabin === '头等舱');
+  const first = (cabin === '头等舱');
+  const o = ekRegionOf(origin), d = ekRegionOf(destination);
+  const rules = {
+    airline_code: 'EK', airline_name_cn: '阿联酋航空', cabin_class: cabin,
+    weight_limit_kg: 32, length_limit_cm: null, width_limit_cm: null, height_limit_cm: null,
+    max_total_weight_kg: 0,
+    weight_concept_available: false, weight_concept_allowance_kg: null,
+    weight_concept_excess_fee_usd_per_kg: null, weight_concept_text: '',
+    piece_concept_available: true,
+  };
+  if (!o || !d) {
+    rules.standard_linear_cm = 203; rules.linear_limit_cm = 203;
+    rules.standard_weight_kg = biz ? 32 : 23; rules.free_bags_per_pax = 2; rules.max_bags_per_pax = 2;
+    rules.excess_bag_fee_usd = null; rules.overweight_fee_usd = null; rules.oversize_fee_usd = null;
+    rules.excess_bag_fee_text = rules.overweight_fee_text = rules.oversize_fee_text = '未查到，请手动填写';
+    rules.notes = '阿联酋按地区/航线计费，无法识别该港口所属地区，请手动填写费率';
+    return rules;
+  }
+  const piece = (o === 'AFR' || d === 'AFR' || o === 'AMR' || d === 'AMR');
+  if (piece) {
+    const rc = ekPieceRoute(o, d);
+    const extra = EK_PIECE[rc.row][rc.col];
+    rules.standard_linear_cm = 150; rules.linear_limit_cm = 203; // 150–203cm oversize fee, >203 cargo
+    rules.standard_weight_kg = biz ? 32 : 23;
+    rules.free_bags_per_pax = 2;
+    rules.max_bags_per_pax = 2 + 5; // up to 5 extra pieces purchasable
+    rules.excess_bag_fee_usd = extra;
+    rules.excess_bag_fee_text = `USD ${extra}/件（${EK_ROUTE_CN[rc.row]}）`;
+    rules.overweight_fee_usd = biz ? 0 : 75;
+    rules.overweight_fee_text = biz ? '商务/头等 32kg 内不计超重' : 'USD 75/件（23–32kg）';
+    rules.oversize_fee_usd = 175;
+    rules.oversize_fee_text = 'USD 175/件（150–203cm）';
+    rules.notes = `阿联酋计件制（往返非洲/美洲）：${EK_ROUTE_CN[rc.row]}、${biz ? '商务/头等' : '经济'}；免费 2 件，超件 USD ${extra}/件，单件≤32kg。`;
+    return rules;
+  }
+  // Weight concept
+  const rate = EK_WRATE[o] ? EK_WRATE[o][d] : null;
+  rules.standard_linear_cm = 203; rules.linear_limit_cm = 203; // per piece ≤203cm, over → cargo (no oversize fee)
+  rules.standard_weight_kg = 32;
+  rules.free_bags_per_pax = 2;
+  rules.max_bags_per_pax = 10;
+  rules.piece_concept_available = false;
+  rules.weight_concept_available = true;
+  rules.weight_concept_allowance_kg = first ? 50 : (biz ? 40 : 30); // econ default 30, override via 机票含kg
+  rules.weight_concept_excess_fee_usd_per_kg = rate;
+  rules.weight_concept_text = rate ? `每公斤 USD ${rate}（${EK_REGION_CN[o]}→${EK_REGION_CN[d]}）` : '未查到';
+  rules.max_total_weight_kg = rules.weight_concept_allowance_kg + 50; // free allowance + up to 50kg purchasable per pax
+  rules.excess_bag_fee_usd = null;
+  rules.excess_bag_fee_text = '按公斤计（见计重制）';
+  rules.overweight_fee_usd = 0;
+  rules.overweight_fee_text = '按公斤计';
+  rules.oversize_fee_usd = null;
+  rules.oversize_fee_text = '单件超 203cm 须走货运';
+  rules.notes = `阿联酋计重制：${EK_REGION_CN[o]}→${EK_REGION_CN[d]}，超出免费额度部分每公斤 USD ${rate}；免费额度 ${rules.weight_concept_allowance_kg}kg（${first ? '头等' : biz ? '商务' : '经济默认，可按实际机票在「机票含kg」改'}），每人最多加购 50kg。单件≤32kg、≤203cm。`;
+  return rules;
+}
+
 function buildLookupPrompt(airlineCode, airlineName, cabin, origin, destination) {
   const hasRoute = origin && destination;
   const routeLine = hasRoute
@@ -3230,6 +3328,18 @@ async function lookupRules(airlineCode, airlineName, cabin, origin, destination,
     if (allowance.weight !== 'auto') {
       if (r.weight_concept_available) r.weight_concept_allowance_kg = parseFloat(allowance.weight);
       else r.standard_weight_kg = parseFloat(allowance.weight);
+    }
+    return r;
+  }
+  // Emirates: fully hardcoded. Dual piece/weight system (like Qatar).
+  if (airlineCode === 'EK') {
+    const r = ekBuildRules(cabin, origin, destination);
+    if (allowance.free !== 'auto') r.free_bags_per_pax = parseInt(allowance.free);
+    if (allowance.weight !== 'auto') {
+      if (r.weight_concept_available) {
+        r.weight_concept_allowance_kg = parseFloat(allowance.weight);
+        r.max_total_weight_kg = r.weight_concept_allowance_kg + 50;
+      } else r.standard_weight_kg = parseFloat(allowance.weight);
     }
     return r;
   }
