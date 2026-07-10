@@ -2708,7 +2708,7 @@ const LH_FEES = {
   SASIA:  { extraFirst: 75, extraRest: 190, over: 185 }, // FRA↔DEL
   NAM:    { extraFirst: 75, extraSecond: 100, extraRest: 190, over: 185 }, // FRA↔JFK (distinct 2nd-piece tier)
   SAM:    { extraFirst: 75, extraSecond: 165, extraRest: 235, over: 230 }, // FRA↔GRU (distinct 2nd-piece tier)
-  AFR:    null, // pending FRA↔JNB
+  AFR:    { extraFirst: 75, extraSecond: 120, extraRest: 235, over: 230 }, // FRA↔JNB
 };
 const LH_ZONE_CN = { europe: '欧洲境内', FE: '欧洲↔远东', ME: '欧洲↔中东', SASIA: '欧洲↔南亚', NAM: '欧洲↔北美', SAM: '欧洲↔中南美', AFR: '欧洲↔非洲' };
 
