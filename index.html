@@ -2908,7 +2908,7 @@ function uaBuildRules(cabin, origin, destination) {
   rules.overweight_fee_text = f.ow.map(t => `≤${t.maxKg}kg USD ${t.fee}`).join(' / ') + `（超重，${f.cn}）`;
   rules.oversize_fee_usd = f.os;
   rules.oversize_fee_text = `USD ${f.os}/件（160–292cm，${f.cn}）`;
-  rules.notes = `美联航计件制：${f.cn}、${first ? '头等' : biz ? '商务' : '经济主舱'}；免费 ${rules.free_bags_per_pax} 件×${rules.standard_weight_kg}kg，单件最重 ${f.maxKg}kg、最大 292cm，每人最多 ${f.max} 件。⚠ 费率按主舱标准公布价，基础经济舱/旺季可能更高，以官网为准。`;
+  rules.notes = `美联航计件制：${f.cn}、${first ? '头等' : biz ? '商务' : '经济主舱'}；免费 ${rules.free_bags_per_pax} 件×${rules.standard_weight_kg}kg，单件最重 ${f.maxKg}kg、最大 292cm，每人最多 ${f.max} 件。⚠ 费率取自美联航「行李费用计算器」网站价（经济主舱标准公布价），基础经济舱/旺季可能更高，仅供参考，实际请以官网查询为准。`;
   return rules;
 }
 
