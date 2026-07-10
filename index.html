@@ -2326,6 +2326,99 @@ function keBuildRules(cabin, origin, destination) {
   return rules;
 }
 
+// ─── Japan Airlines (JL) hardcoded fees ────────────────────────────────────
+// Site is bot-blocked; captured from the official page 2026-07 (all 3 route
+// zones). Key quirk: JL's excess/overweight/oversize fees depend ONLY on the
+// route zone, NOT on cabin — cabin only changes the free allowance (economy /
+// premium-economy 2×23kg, business / first 3×32kg). Extra-piece fee is a FLAT
+// per-piece charge (no per-courier tiering like KE). Overweight IS tiered by
+// the piece's own weight: 23–32kg vs 32–45kg (a big jump — e.g. USD 100 → 600
+// on the intercontinental zone), so the cost engine prices it per piece.
+// Free/standard size is 203cm; a piece over 203cm pays an oversize fee.
+// Absolute piece ceiling 45kg — except London/Paris/Helsinki/Dubai/Australia,
+// where a single piece over 32kg is refused outright.
+const JL_WEST = new Set([ // Americas / Europe / Middle East / Africa
+  // North / Central / South America (Hawaii is EAST, deliberately excluded)
+  'JFK','EWR','LGA','BOS','IAD','DCA','ORD','DFW','ATL','MIA','LAX','SFO','SAN','SEA','LAS','PHX','DEN','IAH','SLC','DTW','MSP','PDX','AUS','SJC','ANC',
+  'YVR','YYZ','YUL','YYC','YEG','YOW','MEX','CUN','GDL','MTY','GRU','GIG','SCL','LIM','BOG','EZE','UIO',
+  // Europe
+  'LHR','LGW','MAN','EDI','DUB','CDG','ORY','FRA','MUC','BER','DUS','HAM','STR','AMS','BRU','VIE','ZRH','GVA','MXP','FCO','MAD','BCN','LIS','OPO','CPH','ARN','OSL','HEL','PRG','BUD','WAW','IST','SVO','LED','ATH',
+  // Middle East
+  'DXB','AUH','SHJ','DOH','BAH','RUH','JED','DMM','KWI','MCT','AMM','TLV','BEY',
+  // Africa
+  'JNB','CPT','NBO','CAI','ADD','LOS']);
+const JL_JAPAN = new Set([ // domestic Japan points (both endpoints in Japan = 日本境内)
+  'NRT','HND','KIX','ITM','NGO','FUK','CTS','OKA','HIJ','SDJ','KMJ','KOJ','OKJ','KMQ','AOJ','KMI','NGS','OIT','TAK','KKJ','ISG','MYJ','KCZ','TOY','AXT','GAJ','FSZ','UBJ','KMQ']);
+// Destinations where a single checked piece over 32kg is not accepted at all.
+const JL_MAX32 = new Set(['LHR','LGW','CDG','ORY','HEL','DXB','SYD','MEL','BNE','PER','ADL','CBR','OOL','CNS']);
+
+function jlRegionOf(iata) {
+  const c = (iata || '').trim().toUpperCase();
+  if (!c) return null;
+  if (JL_JAPAN.has(c)) return 'JP';
+  if (JL_WEST.has(c)) return 'W';
+  return 'E'; // East: Asia (incl. HK/China/Korea/SEA/India), Oceania, Guam, Hawaii, any unlisted point
+}
+
+// Journey (two endpoints) → JL route-zone key.
+function jlZoneOf(origin, destination) {
+  const a = jlRegionOf(origin), b = jlRegionOf(destination);
+  if (!a || !b) return null;
+  if (a === 'JP' && b === 'JP') return 'japan';   // 日本境内
+  if (a === 'W' || b === 'W') return 'intercont'; // 亚太 ↔ 美/欧/中东/非
+  return 'regional';                              // 亚太区内 (E↔E, E↔JP)
+}
+
+// Per zone: flat extra-piece USD, oversize USD (>203cm), and the two overweight
+// tiers (23–32kg / 32–45kg). Cabin does NOT change these.
+const JL_FEES = {
+  intercont: { extra: 200, os: 200, ow32: 100, ow45: 600 },
+  regional:  { extra: 100, os: 100, ow32: 60,  ow45: 300 },
+  japan:     { extra: 50,  os: 50,  ow32: 10,  ow45: 150 },
+};
+const JL_ZONE_CN = { intercont: '洲际（亚太↔美/欧/中东/非）', regional: '亚太区内', japan: '日本境内' };
+
+function jlBuildRules(cabin, origin, destination) {
+  const biz = (cabin === '商务舱' || cabin === '头等舱');
+  const zone = jlZoneOf(origin, destination);
+  const strict = JL_MAX32.has((origin || '').trim().toUpperCase())
+              || JL_MAX32.has((destination || '').trim().toUpperCase());
+  const rules = {
+    airline_code: 'JL', airline_name_cn: '日本航空', cabin_class: cabin,
+    // Free size is 203cm; JL does charge oversize beyond it, but its absolute
+    // linear ceiling isn't published, so (like KE) we treat 203cm as the
+    // practical acceptance limit for cargo couriers — the tool won't plan a
+    // >203cm piece. Oversize fee is still stored for manual use.
+    standard_linear_cm: 203, linear_limit_cm: 203,
+    length_limit_cm: null, width_limit_cm: null, height_limit_cm: null,
+    weight_concept_available: false, weight_concept_allowance_kg: null,
+    weight_concept_excess_fee_usd_per_kg: null, weight_concept_text: '',
+    max_total_weight_kg: 0,
+    standard_weight_kg: biz ? 32 : 23,
+    weight_limit_kg: strict ? 32 : 45,
+    free_bags_per_pax: biz ? 3 : 2,
+  };
+  rules.max_bags_per_pax = rules.free_bags_per_pax + 5; // economy long-haul caps at 7 pieces total
+  if (!zone) {
+    rules.excess_bag_fee_usd = null; rules.overweight_fee_usd = null; rules.oversize_fee_usd = null;
+    rules.excess_bag_fee_text = rules.overweight_fee_text = rules.oversize_fee_text = '未查到，请手动填写';
+    rules.notes = '日航按航线区间收费，请填写始发港 / 目的港以确定区间和费率';
+    return rules;
+  }
+  const f = JL_FEES[zone], zoneCn = JL_ZONE_CN[zone];
+  rules.excess_bag_fee_usd = f.extra; // flat per extra piece
+  rules.excess_bag_fee_text = `USD ${f.extra}/件（${zoneCn}，官方表）`;
+  // Two-tier overweight, priced per piece by its own weight in the cost engine.
+  rules.overweight_fee_tiers = [{ maxKg: 32, fee: f.ow32 }, { maxKg: 45, fee: f.ow45 }];
+  rules.overweight_fee_usd = f.ow32; // representative (lower tier) for the strip / missing-fee check
+  rules.overweight_fee_text = `23–32kg USD ${f.ow32} / 32–45kg USD ${f.ow45}（每件，${zoneCn}）`;
+  rules.oversize_fee_usd = f.os;
+  rules.oversize_fee_text = `USD ${f.os}/件（超 203cm，${zoneCn}）`;
+  rules.notes = `日航计件制：${zoneCn}；${biz ? '商务/头等' : '经济/豪经'}免费 ${rules.free_bags_per_pax} 件×${rules.standard_weight_kg}kg，超额 USD ${f.extra}/件，每人最多 ${rules.max_bags_per_pax} 件。`
+    + (strict ? '（本航线单件超 32kg 不予托运）' : '');
+  return rules;
+}
+
 function buildLookupPrompt(airlineCode, airlineName, cabin, origin, destination) {
   const hasRoute = origin && destination;
   const routeLine = hasRoute
@@ -2716,7 +2809,20 @@ function assignAndPrice(pieces, rules, strategyLabel, totalBoxes) {
   const oversizeCount = pieces.filter(p => p.oversize).length;
   const exceedsMaxCount = pieces.filter(p => p.exceedsMax).length;
 
-  const overweightCost = overweightCount * (rules.overweight_fee_usd || 0);
+  // Overweight fee: flat per piece, unless the airline tiers it by the piece's
+  // own weight (e.g. JAL 23–32kg vs 32–45kg). When tiers exist, price each
+  // overweight piece by which band it falls in.
+  let overweightCost;
+  if (Array.isArray(rules.overweight_fee_tiers) && rules.overweight_fee_tiers.length) {
+    const tiers = rules.overweight_fee_tiers;
+    const tierFee = kg => {
+      for (const t of tiers) if (kg <= t.maxKg) return t.fee;
+      return tiers[tiers.length - 1].fee; // above the top band → top-band fee
+    };
+    overweightCost = pieces.filter(p => p.overweight).reduce((s, p) => s + tierFee(p.kg), 0);
+  } else {
+    overweightCost = overweightCount * (rules.overweight_fee_usd || 0);
+  }
   const oversizeCost   = oversizeCount * (rules.oversize_fee_usd || 0);
   const surcharges = overweightCost + oversizeCost; // same physical violations, same fee, either concept
 
@@ -2981,6 +3087,14 @@ async function lookupRules(airlineCode, airlineName, cabin, origin, destination,
     if (allowance.free !== 'auto') r.free_bags_per_pax = parseInt(allowance.free);
     if (allowance.weight !== 'auto') r.standard_weight_kg = parseFloat(allowance.weight);
     r.max_bags_per_pax = (parseInt(r.free_bags_per_pax) || 0) + 3;
+    return r;
+  }
+  // Japan Airlines: fully hardcoded (site is bot-blocked). No network call.
+  if (airlineCode === 'JL') {
+    const r = jlBuildRules(cabin, origin, destination);
+    if (allowance.free !== 'auto') r.free_bags_per_pax = parseInt(allowance.free);
+    if (allowance.weight !== 'auto') r.standard_weight_kg = parseFloat(allowance.weight);
+    r.max_bags_per_pax = (parseInt(r.free_bags_per_pax) || 0) + 5;
     return r;
   }
   // v3 cache: 90-day TTL (quarterly re-check; matches the proxy's Redis TTL).
