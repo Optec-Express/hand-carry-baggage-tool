@@ -2420,6 +2420,124 @@ function jlBuildRules(cabin, origin, destination) {
   return rules;
 }
 
+// ─── Qatar Airways (QR) hardcoded fees ─────────────────────────────────────
+// Site is bot-blocked; captured from the official page 2026-07. QR is a DUAL
+// system: PIECE concept only for routes touching Africa or the Americas;
+// WEIGHT concept (per-kg, by region pair) for everything else. Hong Kong sits
+// in QR's "中亚/Central Asia" region (China + HK), so most HK courier routes
+// bill by weight. Per-piece hard cap 32kg / 158cm (over 32kg must be split;
+// over 158cm must be split on weight routes). Qatar-origin (Doha) uses QAR
+// rates we don't store — couriers never originate in Doha.
+const QR_REGIONS = {
+  AFR: ['JNB','CPT','DUR','NBO','MBA','DAR','EBB','KGL','ADD','LOS','ABV','PHC','ACC','DKR','ABJ','LOS','LAD','MPM','WDH','GBE','HRE','LUN','TNR','SEZ','MRU','CMN','RAK','TUN','ALG','CAI','HRG','SSH','LXR','KRT','JIB','ZNZ','ROB','MGQ'],
+  AMR: ['JFK','EWR','BOS','IAD','ORD','DFW','IAH','ATL','MIA','LAX','SFO','SEA','PHL','YYZ','YUL','MEX','GRU','GIG','EZE','SCL','BOG','LIM','PTY','CUN'],
+  EU:  ['LHR','LGW','MAN','EDI','DUB','CDG','ORY','NCE','LYS','FRA','MUC','BER','DUS','HAM','STR','AMS','BRU','VIE','ZRH','GVA','MXP','FCO','VCE','MAD','BCN','LIS','OPO','CPH','ARN','GOT','OSL','HEL','PRG','BUD','WAW','KRK','OTP','SOF','ZAG','BEG','ATH','SKG','IST','SAW','ADB','GYD','TBS','EVN','ALA','NQZ','MLA','KEF','LED','SVO','DME','VKO','KBP','LCA'],
+  SUB: ['DEL','BOM','BLR','MAA','HYD','CCU','COK','TRV','AMD','GOI','NAG','PNQ','DAC','CGP','KTM','CMB','MLE','ISB','KHI','LHE'],
+  SEA: ['BKK','HKT','DMK','SIN','KUL','PEN','CGK','DPS','SUB','MNL','CEB','HAN','SGN','RGN','PNH','REP','VTE','KCH','BKI'],
+  CAS: ['PEK','PKX','PVG','SHA','CAN','CTU','TFU','CKG','HGH','WUH','XIY','SZX','NKG','CSX','KMG','TSN','HAK','CGO','FOC','XMN','HKG','MFM'],
+  JPK: ['NRT','HND','KIX','NGO','ICN','GMP','PUS'],
+  OCE: ['SYD','MEL','PER','BNE','ADL','AKL','CHC','WLG','OOL','CNS'],
+  GCC: ['KWI','MCT','SLL','RUH','JED','DMM','MED','AUH','DXB','SHJ','BAH','AHB','TIF'],
+  LEV: ['BGW','BSR','EBL','NJF','AMM','BEY'],
+  IRN: ['IKA','THR','MHD','SYZ','IFN'],
+  QAT: ['DOH'],
+};
+const QR_REGION_CN = { AFR:'非洲', AMR:'美洲', EU:'欧洲', SUB:'印巴次大陆', SEA:'东南亚', CAS:'中国/香港(中亚)', JPK:'日韩', OCE:'大洋洲', GCC:'海合会', LEV:'黎凡特', IRN:'伊朗', QAT:'卡塔尔' };
+const QR_LOOKUP = (() => { const m = {}; for (const k in QR_REGIONS) for (const a of QR_REGIONS[k]) m[a] = k; return m; })();
+function qrRegionOf(iata) { return QR_LOOKUP[(iata || '').trim().toUpperCase()] || null; }
+
+// Weight concept per-kg USD, DIRECTIONAL origin→dest (captured from the region
+// matrix). EU→EU (40) is the one cell cut off in both screenshots — inferred
+// from the surrounding pattern; correct it if the official figure differs.
+const QR_WRATE = {
+  EU:  { EU:40, SUB:40, SEA:40, CAS:40, JPK:50, OCE:60, GCC:25, LEV:30, IRN:30, QAT:30 },
+  SUB: { EU:40, SUB:40, SEA:40, CAS:40, JPK:55, OCE:60, GCC:30, LEV:30, IRN:30, QAT:30 },
+  SEA: { EU:40, SUB:40, SEA:40, CAS:40, JPK:55, OCE:60, GCC:30, LEV:30, IRN:30, QAT:30 },
+  CAS: { EU:40, SUB:40, SEA:40, CAS:40, JPK:60, OCE:60, GCC:40, LEV:40, IRN:40, QAT:40 },
+  JPK: { EU:50, SUB:50, SEA:55, CAS:60, JPK:60, OCE:85, GCC:40, LEV:45, IRN:45, QAT:40 },
+  OCE: { EU:60, SUB:60, SEA:60, CAS:60, JPK:85, OCE:85, GCC:50, LEV:50, IRN:50, QAT:50 },
+  GCC: { EU:25, SUB:25, SEA:30, CAS:40, JPK:40, OCE:50, GCC:20, LEV:20, IRN:20, QAT:25 },
+  LEV: { EU:30, SUB:30, SEA:30, CAS:40, JPK:45, OCE:50, GCC:20, LEV:20, IRN:20, QAT:25 },
+  IRN: { EU:30, SUB:30, SEA:30, CAS:40, JPK:45, OCE:50, GCC:20, LEV:20, IRN:20, QAT:20 },
+};
+function qrWeightRate(o, d) {
+  if (o === 'QAT') return QR_WRATE[d] ? QR_WRATE[d].QAT : null; // Doha-origin: approximate with the reverse USD cell
+  return QR_WRATE[o] ? QR_WRATE[o][d] : null;
+}
+
+// Piece concept (Africa / Americas routes). extra = fee per extra piece ≤32kg
+// (the courier-relevant tier; the cheaper ≤23kg tier is ignored — conservative),
+// ow = 23–32kg overweight surcharge (economy only), os = 158–300cm oversize.
+const QR_PIECE = {
+  africaQatar: { cn:'非洲↔卡塔尔', econ:{ extra:205, ow:75, os:75 }, biz:{ extra:130, ow:0, os:75 } },
+  africaChina: { cn:'非洲↔中国/港', econ:{ extra:345, ow:90, os:90 }, biz:{ extra:255, ow:0, os:90 } },
+  other:       { cn:'其他计件航线(含美洲)', econ:{ extra:330, ow:75, os:75 }, biz:{ extra:255, ow:0, os:75 } },
+};
+function qrPieceColumn(o, d) {
+  const s = new Set([o, d]);
+  if (s.has('AFR') && s.has('QAT')) return 'africaQatar';
+  if (s.has('AFR') && s.has('CAS')) return 'africaChina';
+  return 'other';
+}
+
+function qrBuildRules(cabin, origin, destination) {
+  const biz = (cabin === '商务舱' || cabin === '头等舱');
+  const first = (cabin === '头等舱');
+  const o = qrRegionOf(origin), d = qrRegionOf(destination);
+  const rules = {
+    airline_code: 'QR', airline_name_cn: '卡塔尔航空', cabin_class: cabin,
+    weight_limit_kg: 32, length_limit_cm: null, width_limit_cm: null, height_limit_cm: null,
+    max_total_weight_kg: 0,
+    weight_concept_available: false, weight_concept_allowance_kg: null,
+    weight_concept_excess_fee_usd_per_kg: null, weight_concept_text: '',
+    piece_concept_available: true,
+  };
+  if (!o || !d) {
+    rules.standard_linear_cm = 158; rules.linear_limit_cm = 158;
+    rules.standard_weight_kg = biz ? 32 : 23; rules.free_bags_per_pax = 2; rules.max_bags_per_pax = 2;
+    rules.excess_bag_fee_usd = null; rules.overweight_fee_usd = null; rules.oversize_fee_usd = null;
+    rules.excess_bag_fee_text = rules.overweight_fee_text = rules.oversize_fee_text = '未查到，请手动填写';
+    rules.notes = '卡塔尔按地区/航线计费，无法识别该港口所属地区，请手动填写费率';
+    return rules;
+  }
+  const piece = (o === 'AFR' || d === 'AFR' || o === 'AMR' || d === 'AMR');
+  if (piece) {
+    const col = qrPieceColumn(o, d);
+    const f = QR_PIECE[col][biz ? 'biz' : 'econ'];
+    rules.standard_linear_cm = 158; rules.linear_limit_cm = 300; // 158–300cm accepted with oversize fee
+    rules.standard_weight_kg = biz ? 32 : 23;
+    rules.free_bags_per_pax = 2;
+    rules.max_bags_per_pax = 2 + 10; // QR sells up to 10 extra pieces (narrowbody); widebody allows more
+    rules.excess_bag_fee_usd = f.extra;
+    rules.excess_bag_fee_text = `USD ${f.extra}/件（≤32kg，${QR_PIECE[col].cn}）`;
+    rules.overweight_fee_usd = f.ow;
+    rules.overweight_fee_text = f.ow ? `USD ${f.ow}/件（23–32kg，${QR_PIECE[col].cn}）` : '商务/头等 32kg 内不计超重';
+    rules.oversize_fee_usd = f.os;
+    rules.oversize_fee_text = `USD ${f.os}/件（158–300cm，${QR_PIECE[col].cn}）`;
+    rules.notes = `卡塔尔计件制（往返非洲/美洲）：${QR_PIECE[col].cn}、${biz ? '商务/头等' : '经济'}；免费 2 件，超件 USD ${f.extra}/件（≤32kg），单件最重 32kg。`;
+    return rules;
+  }
+  // Weight concept
+  const rate = qrWeightRate(o, d);
+  rules.standard_linear_cm = 158; rules.linear_limit_cm = 158; // over 158cm must be split
+  rules.standard_weight_kg = 32; // per-piece ceiling; excess is billed by total kg, not per-piece overweight
+  rules.free_bags_per_pax = 2;   // informational; weight concept caps by kg, not piece count
+  rules.max_bags_per_pax = 10;
+  rules.piece_concept_available = false; // this route bills ONLY by weight
+  rules.weight_concept_available = true;
+  rules.weight_concept_allowance_kg = first ? 50 : (biz ? 40 : 30); // econ default 30 (fare-dependent 20/25/30/35), override via 机票含kg
+  rules.weight_concept_excess_fee_usd_per_kg = rate;
+  rules.weight_concept_text = rate ? `每公斤 USD ${rate}（${QR_REGION_CN[o]}→${QR_REGION_CN[d]}）` : '未查到';
+  rules.excess_bag_fee_usd = null;
+  rules.excess_bag_fee_text = '按公斤计（见计重制）';
+  rules.overweight_fee_usd = 0; // no separate per-piece overweight under weight concept
+  rules.overweight_fee_text = '按公斤计';
+  rules.oversize_fee_usd = null;
+  rules.oversize_fee_text = '单件超 158cm 须拆分';
+  rules.notes = `卡塔尔计重制：${QR_REGION_CN[o]}→${QR_REGION_CN[d]}，超出免费额度部分每公斤 USD ${rate}；免费额度 ${rules.weight_concept_allowance_kg}kg（${first ? '头等' : biz ? '商务' : '经济默认，可按实际机票在「机票含kg」改'}）。单件≤32kg、≤158cm。`;
+  return rules;
+}
+
 function buildLookupPrompt(airlineCode, airlineName, cabin, origin, destination) {
   const hasRoute = origin && destination;
   const routeLine = hasRoute
@@ -2873,10 +2991,14 @@ function assignAndPrice(pieces, rules, strategyLabel, totalBoxes) {
     };
   }
 
+  // Some airlines bill a given route ONLY by weight (e.g. Qatar's non-Africa/
+  // Americas routes) — piece concept doesn't apply and would score $0, wrongly
+  // winning. piece_concept_available:false forces the weight result.
+  const pieceAvailable = rules.piece_concept_available !== false;
   // User rule: pick whichever concept is cheaper, but when they're close
   // (within 5%) prefer 计件制 — its per-piece pricing is the safer default
   // at the counter and keeps the plan simple.
-  const recommended = (weightConcept && weightConcept.total_usd < pieceConcept.total_usd * 0.95)
+  const recommended = (weightConcept && (!pieceAvailable || weightConcept.total_usd < pieceConcept.total_usd * 0.95))
     ? weightConcept : pieceConcept;
 
   const details = [recommended.detail];
@@ -2888,7 +3010,7 @@ function assignAndPrice(pieces, rules, strategyLabel, totalBoxes) {
   // so the total is understated. Flag it loudly rather than pass a fake number
   // off as real — the user must fill the rate in 人工调整 and 重新计算.
   const missing = [];
-  if (excessBags     && !(rules.excess_bag_fee_usd     > 0)) missing.push('超件');
+  if (pieceAvailable && excessBags && !(rules.excess_bag_fee_usd > 0)) missing.push('超件');
   if (overweightCount && !(rules.overweight_fee_usd    > 0)) missing.push('超重');
   if (oversizeCount  && !(rules.oversize_fee_usd       > 0)) missing.push('超尺寸');
   if (missing.length) details.unshift(`⚠ ${missing.join('、')}费率未查到，已暂按 USD 0 计（费用被低估）——请在下方费率框填入官网实际数值后点「重新计算」`);
@@ -3096,6 +3218,18 @@ async function lookupRules(airlineCode, airlineName, cabin, origin, destination,
     if (allowance.free !== 'auto') r.free_bags_per_pax = parseInt(allowance.free);
     if (allowance.weight !== 'auto') r.standard_weight_kg = parseFloat(allowance.weight);
     r.max_bags_per_pax = (parseInt(r.free_bags_per_pax) || 0) + 7; // JL: free + 7 extra (econ 9 / biz 10)
+    return r;
+  }
+  // Qatar Airways: fully hardcoded (site is bot-blocked). Dual piece/weight system.
+  if (airlineCode === 'QR') {
+    const r = qrBuildRules(cabin, origin, destination);
+    if (allowance.free !== 'auto') r.free_bags_per_pax = parseInt(allowance.free);
+    // On weight-concept routes 机票含kg is the per-passenger free TOTAL kg;
+    // on piece routes it's the per-piece standard weight.
+    if (allowance.weight !== 'auto') {
+      if (r.weight_concept_available) r.weight_concept_allowance_kg = parseFloat(allowance.weight);
+      else r.standard_weight_kg = parseFloat(allowance.weight);
+    }
     return r;
   }
   // v3 cache: 90-day TTL (quarterly re-check; matches the proxy's Redis TTL).
