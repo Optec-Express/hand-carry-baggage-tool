@@ -2637,6 +2637,83 @@ function ekBuildRules(cabin, origin, destination) {
   return rules;
 }
 
+// ─── Lufthansa (LH) hardcoded fees ─────────────────────────────────────────
+// Captured from the official baggage calculator 2026-07 (WEBSITE / pre-purchase
+// prices; airport counter & gate are higher). LH is PIECE concept, fee by route
+// zone: within-Europe vs intercontinental. Extra checked piece is tiered (1st
+// cheaper). A 24–32kg and/or 159–292cm piece adds a surcharge. >32kg or >315cm
+// must ship as Lufthansa Cargo. Standard 23kg / 158cm.
+// NOTE: only the within-Europe zone fees are confirmed so far. Intercontinental
+// zone fees await user calculator screenshots (FRA↔HKG etc.); those routes
+// return 未查到 until filled in.
+const LH_EUROPE = new Set([
+  'FRA','MUC','BER','TXL','HAM','DUS','CGN','STR','NUE','LEJ','BRE','HAJ','DRS','FMO', // Germany
+  'LHR','LGW','MAN','EDI','BHX','GLA','NCL','LBA','ABZ', // UK
+  'CDG','ORY','NCE','LYS','MRS','TLS','BOD','NTE', // France
+  'FCO','MXP','LIN','VCE','NAP','BLQ','TRN','FLR','CTA','BRI', // Italy
+  'MAD','BCN','AGP','PMI','VLC','SVQ','BIO','LPA','TFN', // Spain
+  'AMS','BRU','VIE','ZRH','GVA','BSL','LUX', // BeNeLux / AT / CH
+  'CPH','ARN','GOT','OSL','BGO','HEL','KEF', // Nordics
+  'LIS','OPO','DUB','ATH','SKG','HER', // PT / IE / GR
+  'PRG','BUD','WAW','KRK','GDN','OTP','SOF','ZAG','BEG','LJU','BTS','TLL','RIX','VNO', // Central/Eastern Europe
+  'IST','SAW','ADB', // Turkey
+  'SVO','DME','VKO','LED', // Russia (European part)
+  'GYD','EVN','TBS','KBP','LWO','SJJ','TGD','SKP','TIA','KIV', // Caucasus / Balkans / Moldova
+  'CMN','RAK','ALG','TUN','ASB', // Morocco / Algeria / Tunisia + Ashgabat (LH applies Europe rules)
+  'MLA','LCA','GIB', // Malta / Cyprus / Gibraltar
+]);
+function lhZoneOf(origin, destination) {
+  const a = (origin || '').trim().toUpperCase(), b = (destination || '').trim().toUpperCase();
+  if (!a || !b) return null;
+  return (LH_EUROPE.has(a) && LH_EUROPE.has(b)) ? 'europe' : 'intercont';
+}
+// Per zone (WEBSITE prices): tiered extra-piece (first / rest ≤23kg ≤158cm) and
+// a surcharge added when a piece is 24–32kg and/or 159–292cm. Additive model:
+// a heavy extra piece ≈ extraRest + over. intercont pending official figures.
+const LH_FEES = {
+  europe:   { extraFirst: 50, extraRest: 80, over: 75 },
+  intercont: null, // TODO: fill from calculator (FRA↔HKG / JFK / …)
+};
+const LH_ZONE_CN = { europe: '欧洲境内', intercont: '洲际' };
+
+function lhBuildRules(cabin, origin, destination) {
+  const biz = (cabin === '商务舱' || cabin === '头等舱');
+  const first = (cabin === '头等舱');
+  const zone = lhZoneOf(origin, destination);
+  const rules = {
+    airline_code: 'LH', airline_name_cn: '汉莎航空', cabin_class: cabin,
+    weight_limit_kg: 32, standard_linear_cm: 158, linear_limit_cm: 292,
+    length_limit_cm: null, width_limit_cm: null, height_limit_cm: null,
+    weight_concept_available: false, weight_concept_allowance_kg: null,
+    weight_concept_excess_fee_usd_per_kg: null, weight_concept_text: '',
+    max_total_weight_kg: 0, piece_concept_available: true,
+    standard_weight_kg: biz ? 32 : 23,
+    free_bags_per_pax: first ? 3 : (biz ? 2 : 1),
+  };
+  rules.max_bags_per_pax = rules.free_bags_per_pax + 5;
+  const f = zone ? LH_FEES[zone] : null;
+  if (!f) {
+    // no route, or intercontinental (fees not yet captured)
+    rules.excess_bag_fee_usd = null; rules.overweight_fee_usd = null; rules.oversize_fee_usd = null;
+    rules.excess_bag_fee_text = rules.overweight_fee_text = rules.oversize_fee_text = '未查到，请手动填写';
+    rules.notes = zone === 'intercont'
+      ? '汉莎洲际航线费率尚未录入（需官网行李计算器截图），请手动填写费率，或改用欧洲境内航线'
+      : '汉莎按航段区间收费，请填写始发港 / 目的港以确定区间';
+    return rules;
+  }
+  const zoneCn = LH_ZONE_CN[zone];
+  rules.extra_first_fee_usd = f.extraFirst; // tiered per-courier extra piece
+  rules.extra_rest_fee_usd = f.extraRest;
+  rules.excess_bag_fee_usd = f.extraRest; // flat fallback / strip display
+  rules.excess_bag_fee_text = `首件 USD ${f.extraFirst}、之后每件 USD ${f.extraRest}（${zoneCn}，网站价）`;
+  rules.overweight_fee_usd = f.over;
+  rules.overweight_fee_text = `USD ${f.over}/件（24–32kg，${zoneCn}）`;
+  rules.oversize_fee_usd = f.over;
+  rules.oversize_fee_text = `USD ${f.over}/件（159–292cm，${zoneCn}）`;
+  rules.notes = `汉莎计件制：${zoneCn}、${first ? '头等' : biz ? '商务' : '经济'}；免费 ${rules.free_bags_per_pax} 件×${rules.standard_weight_kg}kg，加件首件 USD ${f.extraFirst}/之后 USD ${f.extraRest}。单件≤32kg、≤292cm（网站价，柜台更贵）。`;
+  return rules;
+}
+
 function buildLookupPrompt(airlineCode, airlineName, cabin, origin, destination) {
   const hasRoute = origin && destination;
   const routeLine = hasRoute
@@ -3341,6 +3418,14 @@ async function lookupRules(airlineCode, airlineName, cabin, origin, destination,
         r.max_total_weight_kg = r.weight_concept_allowance_kg + 50;
       } else r.standard_weight_kg = parseFloat(allowance.weight);
     }
+    return r;
+  }
+  // Lufthansa: piece concept, hardcoded (within-Europe done; intercont pending).
+  if (airlineCode === 'LH') {
+    const r = lhBuildRules(cabin, origin, destination);
+    if (allowance.free !== 'auto') r.free_bags_per_pax = parseInt(allowance.free);
+    if (allowance.weight !== 'auto') r.standard_weight_kg = parseFloat(allowance.weight);
+    r.max_bags_per_pax = (parseInt(r.free_bags_per_pax) || 0) + 5;
     return r;
   }
   // v3 cache: 90-day TTL (quarterly re-check; matches the proxy's Redis TTL).
