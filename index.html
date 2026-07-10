@@ -2458,9 +2458,11 @@ const QR_WRATE = {
   GCC: { EU:25, SUB:25, SEA:30, CAS:40, JPK:40, OCE:50, GCC:20, LEV:20, IRN:20, QAT:25 },
   LEV: { EU:30, SUB:30, SEA:30, CAS:40, JPK:45, OCE:50, GCC:20, LEV:20, IRN:20, QAT:25 },
   IRN: { EU:30, SUB:30, SEA:30, CAS:40, JPK:45, OCE:50, GCC:20, LEV:20, IRN:20, QAT:20 },
+  // Doha-origin: official table prices this row in Qatari Riyal (QAR 80/60/90/
+  // 100/110/140/40/50/60). Converted to USD at the fixed peg 3.64 QAR = 1 USD.
+  QAT: { EU:22, SUB:16, SEA:25, CAS:27, JPK:30, OCE:38, GCC:11, LEV:14, IRN:16, QAT:null },
 };
 function qrWeightRate(o, d) {
-  if (o === 'QAT') return QR_WRATE[d] ? QR_WRATE[d].QAT : null; // Doha-origin: approximate with the reverse USD cell
   return QR_WRATE[o] ? QR_WRATE[o][d] : null;
 }
 
