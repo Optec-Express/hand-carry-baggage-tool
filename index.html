@@ -2337,12 +2337,13 @@ function keBuildRules(cabin, origin, destination) {
 // Free/standard size is 203cm; a piece over 203cm pays an oversize fee.
 // Absolute piece ceiling 45kg — except London/Paris/Helsinki/Dubai/Australia,
 // where a single piece over 32kg is refused outright.
-const JL_WEST = new Set([ // Americas / Europe / Middle East / Africa
-  // North / Central / South America (Hawaii is EAST, deliberately excluded)
+const JL_WEST = new Set([ // Americas + Hawaii / Europe / Middle East / Africa
+  // North / Central / South America + Hawaii (JL's fee UI groups Hawaii with N.America)
   'JFK','EWR','LGA','BOS','IAD','DCA','ORD','DFW','ATL','MIA','LAX','SFO','SAN','SEA','LAS','PHX','DEN','IAH','SLC','DTW','MSP','PDX','AUS','SJC','ANC',
+  'HNL','OGG','KOA','LIH','ITO',
   'YVR','YYZ','YUL','YYC','YEG','YOW','MEX','CUN','GDL','MTY','GRU','GIG','SCL','LIM','BOG','EZE','UIO',
-  // Europe
-  'LHR','LGW','MAN','EDI','DUB','CDG','ORY','FRA','MUC','BER','DUS','HAM','STR','AMS','BRU','VIE','ZRH','GVA','MXP','FCO','MAD','BCN','LIS','OPO','CPH','ARN','OSL','HEL','PRG','BUD','WAW','IST','SVO','LED','ATH',
+  // Europe (incl. Moscow / St Petersburg — Russian Far East e.g. VVO stays EAST/regional)
+  'LHR','LGW','MAN','EDI','DUB','CDG','ORY','FRA','MUC','BER','DUS','HAM','STR','AMS','BRU','VIE','ZRH','GVA','MXP','FCO','MAD','BCN','LIS','OPO','CPH','ARN','OSL','HEL','PRG','BUD','WAW','IST','SVO','DME','VKO','LED','ATH',
   // Middle East
   'DXB','AUH','SHJ','DOH','BAH','RUH','JED','DMM','KWI','MCT','AMM','TLV','BEY',
   // Africa
@@ -2398,7 +2399,7 @@ function jlBuildRules(cabin, origin, destination) {
     weight_limit_kg: strict ? 32 : 45,
     free_bags_per_pax: biz ? 3 : 2,
   };
-  rules.max_bags_per_pax = rules.free_bags_per_pax + 5; // economy long-haul caps at 7 pieces total
+  rules.max_bags_per_pax = 7; // JL caps every passenger at 7 checked pieces total, all cabins/zones
   if (!zone) {
     rules.excess_bag_fee_usd = null; rules.overweight_fee_usd = null; rules.oversize_fee_usd = null;
     rules.excess_bag_fee_text = rules.overweight_fee_text = rules.oversize_fee_text = '未查到，请手动填写';
@@ -3094,7 +3095,7 @@ async function lookupRules(airlineCode, airlineName, cabin, origin, destination,
     const r = jlBuildRules(cabin, origin, destination);
     if (allowance.free !== 'auto') r.free_bags_per_pax = parseInt(allowance.free);
     if (allowance.weight !== 'auto') r.standard_weight_kg = parseFloat(allowance.weight);
-    r.max_bags_per_pax = (parseInt(r.free_bags_per_pax) || 0) + 5;
+    r.max_bags_per_pax = 7; // JL hard cap: 7 checked pieces per passenger
     return r;
   }
   // v3 cache: 90-day TTL (quarterly re-check; matches the proxy's Redis TTL).
