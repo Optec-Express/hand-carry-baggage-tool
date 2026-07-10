@@ -2671,8 +2671,11 @@ function lhZoneOf(origin, destination) {
 // a surcharge added when a piece is 24–32kg and/or 159–292cm. Additive model:
 // a heavy extra piece ≈ extraRest + over. intercont pending official figures.
 const LH_FEES = {
-  europe:   { extraFirst: 50, extraRest: 80, over: 75 },
-  intercont: null, // TODO: fill from calculator (FRA↔HKG / JFK / …)
+  europe:   { extraFirst: 50, extraRest: 80,  over: 75 },
+  // Intercontinental: captured from FRA↔HKG (Far East). Assumed uniform across
+  // all intercontinental destinations — verify against FRA↔JFK etc. and split
+  // by continent if they differ.
+  intercont: { extraFirst: 75, extraRest: 235, over: 230 },
 };
 const LH_ZONE_CN = { europe: '欧洲境内', intercont: '洲际' };
 
