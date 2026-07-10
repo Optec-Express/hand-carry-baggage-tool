@@ -3030,7 +3030,15 @@ async function lookupRules(airlineCode, airlineName, cabin, origin, destination,
     const text = data.content?.[0]?.text || '';
     if (!text) throw new Error('AI 返回空响应，请重试');
     rules = extractJSON(text);
-    try { localStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), rules })); } catch (_) {}
+    // Mirror the proxy: don't locally cache a failed lookup ("未查到" — all
+    // core fees null), so it gets re-attempted next time instead of being
+    // pinned for the full TTL.
+    const noFees = rules.excess_bag_fee_usd == null
+      && rules.overweight_fee_usd == null
+      && rules.oversize_fee_usd == null;
+    if (!noFees) {
+      try { localStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), rules })); } catch (_) {}
+    }
   }
 
   rules.airline_code = airlineCode;

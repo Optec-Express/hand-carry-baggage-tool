@@ -192,9 +192,26 @@ export default async function handler(req, res) {
 
     console.log('[Claude text 前200字]', text.slice(0, 200));
     const clean = stripFences(text);
+    // Don't cache a failed lookup. Bot-blocked airlines return a result whose
+    // fees are all null ("未查到") — caching that would lock the whole company
+    // into "未查到" for the full TTL and stop anyone from re-attempting the
+    // fetch (which might succeed later). Only persist a result that actually
+    // carries a confirmed fee number. Unparseable text is cached as before.
+    let cacheable = true;
     if (cacheKey) {
+      try {
+        const r = JSON.parse(clean);
+        const noFees = r.excess_bag_fee_usd == null
+          && r.overweight_fee_usd == null
+          && r.oversize_fee_usd == null;
+        if (noFees) cacheable = false;
+      } catch (_) { /* not JSON — leave cacheable true */ }
+    }
+    if (cacheKey && cacheable) {
       const saved = await kvCmd(['SET', cacheKey, clean, 'EX', String(RULES_TTL_SECONDS)]);
       console.log(saved === 'OK' ? `[KV] saved ${cacheKey}` : `[KV] save FAILED ${cacheKey}`);
+    } else if (cacheKey) {
+      console.log('[KV] skip cache (no confirmed fees / 未查到)', cacheKey);
     }
     res.status(200).json({ content: [{ type: 'text', text: clean }] });
   } catch (e) {
