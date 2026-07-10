@@ -2707,7 +2707,7 @@ const LH_FEES = {
   ME:     { extraFirst: 75, extraRest: 145, over: 145 }, // FRA↔DXB
   SASIA:  null, // pending FRA↔DEL
   NAM:    null, // pending FRA↔JFK
-  SAM:    null, // pending FRA↔GRU
+  SAM:    { extraFirst: 75, extraSecond: 165, extraRest: 235, over: 230 }, // FRA↔GRU (distinct 2nd-piece tier)
   AFR:    null, // pending FRA↔JNB
 };
 const LH_ZONE_CN = { europe: '欧洲境内', FE: '欧洲↔远东', ME: '欧洲↔中东', SASIA: '欧洲↔南亚', NAM: '欧洲↔北美', SAM: '欧洲↔中南美', AFR: '欧洲↔非洲' };
@@ -2739,9 +2739,12 @@ function lhBuildRules(cabin, origin, destination) {
   }
   const zoneCn = LH_ZONE_CN[zone];
   rules.extra_first_fee_usd = f.extraFirst; // tiered per-courier extra piece
+  if (f.extraSecond != null) rules.extra_second_fee_usd = f.extraSecond;
   rules.extra_rest_fee_usd = f.extraRest;
   rules.excess_bag_fee_usd = f.extraRest; // flat fallback / strip display
-  rules.excess_bag_fee_text = `首件 USD ${f.extraFirst}、之后每件 USD ${f.extraRest}（${zoneCn}，网站价）`;
+  rules.excess_bag_fee_text = f.extraSecond != null
+    ? `首件 USD ${f.extraFirst}、第二件 USD ${f.extraSecond}、之后每件 USD ${f.extraRest}（${zoneCn}，网站价）`
+    : `首件 USD ${f.extraFirst}、之后每件 USD ${f.extraRest}（${zoneCn}，网站价）`;
   rules.overweight_fee_usd = f.over;
   rules.overweight_fee_text = `USD ${f.over}/件（24–32kg，${zoneCn}）`;
   rules.oversize_fee_usd = f.over;
@@ -3165,9 +3168,15 @@ function assignAndPrice(pieces, rules, strategyLabel, totalBoxes) {
   if (rules.extra_first_fee_usd != null) {
     const first = rules.extra_first_fee_usd;
     const rest = rules.extra_rest_fee_usd != null ? rules.extra_rest_fee_usd : first;
+    // Optional distinct 2nd-piece price (e.g. Lufthansa to South America); else 2nd = rest.
+    const second = rules.extra_second_fee_usd != null ? rules.extra_second_fee_usd : rest;
     pieceExcessCost = courierSlices.reduce((sum, slice) => {
       const paid = Math.max(0, slice.length - freeBagsPerPax);
-      return sum + (paid >= 1 ? first + (paid - 1) * rest : 0);
+      if (paid <= 0) return sum;
+      let c = first;                              // 1st paid piece
+      if (paid >= 2) c += second;                 // 2nd paid piece
+      if (paid >= 3) c += (paid - 2) * rest;       // 3rd+ paid pieces
+      return sum + c;
     }, 0);
   } else {
     pieceExcessCost = excessBags * (rules.excess_bag_fee_usd || 0);
