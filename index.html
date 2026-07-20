@@ -1425,6 +1425,7 @@ const AIRLINES = [
   {c:'EK',n:'阿联酋航空'},{c:'DL',n:'达美航空'},{c:'AC',n:'加拿大航空'},{c:'CA',n:'中国国际航空'},
   {c:'CZ',n:'中国南方航空'},{c:'CI',n:'中华航空'},{c:'BR',n:'长荣航空'},{c:'OZ',n:'韩亚航空'},
   {c:'LX',n:'瑞士国际航空'},{c:'MU',n:'中国东方航空'},{c:'TG',n:'泰国国际航空'},{c:'VN',n:'越南航空'},
+  {c:'UO',n:'香港快运'},
 ];
 const airlineNameOf = code => (AIRLINES.find(a => a.c === code) || {}).n || code;
 const airlineOptionsHTML = () => AIRLINES.map(a => `<option value="${a.c}">${a.c} · ${a.n}</option>`).join('');
@@ -1481,6 +1482,7 @@ const BAGGAGE_LINKS = {
   MU: 'https://www.ceair.com/global/en_static/Announcement/BaggageService/FreeBaggageAllowanceandSpecifications/',
   TG: 'https://www.thaiairways.com/en-th/content/more-services/online-excess-baggage/',
   VN: 'https://www.vietnamairlines.com/us/en/travel-information/baggage/baggage-allowance-checked-baggage#accordion-843b07afc5-item-dc061ba497',
+  UO: 'https://www.hkexpress.com/en-hk/plan/baggage/checked-baggage/',
 };
 
 // ─── Init ─────────────────────────────────────────────────
