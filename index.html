@@ -2013,15 +2013,17 @@ async function recognizeImage() {
 For each item extract:
 - desc: product name or description
 - l, w, h: dimensions in cm (convert inches ×2.54, mm ÷10, pounds ÷2.205, grams ÷1000)
-- kg: weight in kg
+- kg: PER-PIECE weight of ONE box in that row, in kg. CRITICAL: many packing lists put the ROW TOTAL weight in the weight column (e.g. a row of 7 boxes showing "161" means 161kg for all 7 = 23kg each). If the number is clearly a row/group total for q pieces, divide it by q so kg is the weight of a single box. Only skip the division when the column is genuinely per-unit weight. Never leave a row-total in kg — that gets multiplied by q again and inflates the total.
 - q: quantity (default 1 if not shown)
 
 Use null for any field not found in the image. If no dimensions found at all, return empty items array.
 
+Note that the app computes the shipment total as Σ(kg × q). So Σ(kg × q) MUST equal the real shipment total weight shown in the source. Before returning, sanity-check: if Σ(kg × q) is far larger than any grand-total printed in the image, you left row-totals in kg — fix by dividing each by its q.
+
 The "notes" field MUST be written in concise Simplified Chinese for a non-technical user — only mention things that affect the numbers (unit conversion, unusual/unclear values, blurry image). Do NOT include field names, code, or reasoning jargon. Empty string if nothing noteworthy.
 
 Reply with ONLY this JSON, no explanation, no markdown, no extra text:
-{"items":[{"desc":"name","l":60,"w":40,"h":35,"kg":8.5,"q":1}],"confidence":"high","notes":"尺寸按毫米÷10换算为厘米；第5行重量原文为混合值，已取平均"}`;
+{"items":[{"desc":"name","l":60,"w":40,"h":35,"kg":8.5,"q":1}],"confidence":"high","notes":"尺寸按毫米÷10换算为厘米；重量列为整行总重，已÷件数换成单件重量"}`;
 
   try {
     const res = await fetch('/api/proxy', {
