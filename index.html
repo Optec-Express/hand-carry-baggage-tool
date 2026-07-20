@@ -3077,6 +3077,83 @@ function tkBuildRules(cabin, origin, destination) {
   return rules;
 }
 
+// ─── EVA Air (BR) hardcoded fees ──────────────────────────────────────────
+// Piece concept, Taipei-hub. Captured 2026-07 from EVA's OFFICIAL published
+// excess-baggage rate table (超額行李費率表, USD/piece, non-Canada origins) —
+// authoritative table, not a calculator estimate; the calculator's per-route
+// results matched this table exactly. Zones: 台灣(TW) + 5 regions. Matrix is
+// symmetric. Overweight/oversize are MULTIPLES of the zone-pair base fee.
+// Standard 23kg(econ)/32kg(biz), 158cm; single piece to 45kg (32–45kg needs
+// airline approval, 3× fee) & 292cm; over → cargo.
+const BR_REGIONS = {
+  TW: ['TPE','TSA','KHH','RMQ','TNN','MZG','KNH','HUN'],
+  Z1: ['NRT','HND','KIX','ITM','NGO','CTS','FUK','OKA','KKJ','KOJ','HIJ','SDJ','KMJ','NGS','ICN','GMP','PUS','CJU','TAE','MNL','CEB','CRK','DVO','KLO','PEK','PKX','PVG','SHA','CAN','CTU','CKG','HGH','XMN','SZX','NKG','WUH','CSX','KMG','XIY','TAO','DLC','SYX','FOC','TNA','HAK','CGO','NNG','HKG','MFM','BKK','DMK','HKT','CNX','USM','KBV','KUL','PEN','BKI','KCH','LGK','BWN','SIN','CGK','DPS','SUB','JOG','HAN','SGN','DAD','CXR','PQC','PNH','REP','VTE','LPQ','RGN','MDL'],
+  Z2: ['SYD','MEL','BNE','PER','ADL','OOL','CNS','AKL','CHC','WLG','ZQN','NAN','GUM','ROR','SPN','SVO','DME','VKO','LED','VVO','KHV','DEL','BOM','BLR','MAA','HYD','CCU','COK','AMD','GOI','DAC','CMB','KTM','ISB','KHI','LHE','MLE','ULN','TAS','ALA','GYD','TBS','EVN'],
+  Z3: ['LAX','SFO','SEA','YVR','HNL','OGG','KOA','LIH','DXB','AUH','SHJ','DOH','BAH','KWI','RUH','JED','DMM','MCT','AMM','BEY','BGW','EBL','TLV','IKA','THR'],
+  Z4: ['JFK','EWR','LGA','BOS','IAD','DCA','BWI','ORD','DFW','IAH','MIA','ATL','DEN','LAS','PHX','MCO','CLT','PHL','MSP','DTW','SLC','SAN','PDX','AUS','YYZ','YUL','YOW','LHR','LGW','MAN','CDG','ORY','FRA','MUC','DUS','BER','HAM','STR','CGN','MAD','BCN','AGP','FCO','MXP','VCE','NAP','AMS','BRU','ZRH','GVA','VIE','DUB','LIS','OPO','ATH','CPH','ARN','OSL','HEL','WAW','KRK','PRG','BUD','OTP','SOF','ZAG','BEG','KBP','IST','SAW','ESB','ADB','AYT','CAI','HRG','SSH','JNB','CPT','DUR','NBO','MBA','ADD','LOS','ABV','ACC','DKR','ABJ','DAR','EBB','KGL','LAD','CMN','RAK','TUN','ALG','KRT','MPM','SEZ','MRU','TNR'],
+  Z5: ['MEX','CUN','GDL','MTY','GRU','GIG','EZE','SCL','BOG','LIM','UIO','PTY','CCS','MVD','ASU','SDQ','PUJ','HAV','SJO','GUA','SAL','LPB','VVI'],
+};
+const BR_REGION_CN = { TW:'台湾', Z1:'第1区(东亚/东南亚)', Z2:'第2区(大洋洲/俄/其它亚洲)', Z3:'第3区(北美西岸/夏威夷/中东)', Z4:'第4区(北美其余/欧洲/非洲)', Z5:'第5区(中南美)' };
+const BR_LOOKUP = (() => { const m = {}; for (const k in BR_REGIONS) for (const a of BR_REGIONS[k]) m[a] = k; return m; })();
+function brRegionOf(iata) { return BR_LOOKUP[(iata || '').trim().toUpperCase()] || null; }
+// Symmetric USD/piece matrix (official table).
+const BR_FEE = {
+  TW: { Z1:140, Z2:170, Z3:200, Z4:230, Z5:260 },
+  Z1: { TW:140, Z1:160, Z2:200, Z3:230, Z4:250, Z5:260 },
+  Z2: { TW:170, Z1:200, Z2:230, Z3:250, Z4:260, Z5:270 },
+  Z3: { TW:200, Z1:230, Z2:250, Z3:260, Z4:270, Z5:280 },
+  Z4: { TW:230, Z1:250, Z2:260, Z3:270, Z4:280, Z5:290 },
+  Z5: { TW:260, Z1:260, Z2:270, Z3:280, Z4:290, Z5:300 },
+};
+// 註1: Bangkok ↔ EVA's Europe points (AMS/VIE/LHR) = USD 230 (not the Z1↔Z4 250).
+const BR_BKK_EUR = new Set(['AMS','VIE','LHR']);
+function brFeeUSD(origin, destination, za, zb) {
+  const O = (origin || '').trim().toUpperCase(), D = (destination || '').trim().toUpperCase();
+  if ((O === 'BKK' && BR_BKK_EUR.has(D)) || (D === 'BKK' && BR_BKK_EUR.has(O))) return 230;
+  const row = BR_FEE[za];
+  return row && row[zb] != null ? row[zb] : null;
+}
+
+function brBuildRules(cabin, origin, destination) {
+  const biz = (cabin === '商务舱' || cabin === '头等舱');
+  const first = (cabin === '头等舱');
+  const za = brRegionOf(origin), zb = brRegionOf(destination);
+  const rules = {
+    airline_code: 'BR', airline_name_cn: '长荣航空', cabin_class: cabin,
+    weight_limit_kg: 45, length_limit_cm: null, width_limit_cm: null, height_limit_cm: null,
+    max_total_weight_kg: 0,
+    weight_concept_available: false, weight_concept_allowance_kg: null,
+    weight_concept_excess_fee_usd_per_kg: null, weight_concept_text: '',
+    piece_concept_available: true,
+    standard_linear_cm: 158, linear_limit_cm: 292,
+    standard_weight_kg: biz ? 32 : 23,
+    free_bags_per_pax: 2, max_bags_per_pax: 10,
+  };
+  const base = (za && zb) ? brFeeUSD(origin, destination, za, zb) : null;
+  if (!base) {
+    rules.excess_bag_fee_usd = null; rules.overweight_fee_usd = null; rules.oversize_fee_usd = null;
+    rules.excess_bag_fee_text = rules.overweight_fee_text = rules.oversize_fee_text = '未查到，请手动填写';
+    rules.notes = '长荣航空按区域计件计费，无法识别该港口所属区域（或台湾境内），请手动填写费率';
+    return rules;
+  }
+  const route = `${BR_REGION_CN[za]}↔${BR_REGION_CN[zb]}`;
+  rules.extra_first_fee_usd = base;
+  rules.extra_second_fee_usd = base;
+  rules.extra_rest_fee_usd = base;
+  rules.excess_bag_fee_usd = base;
+  rules.excess_bag_fee_text = `超免费额度后每件 USD ${base}（≤23kg/158cm，${route}）`;
+  // Overweight = multiples of the base piece fee: 23–32kg → 0.5×, 32–45kg → 3× (needs approval).
+  const ow32 = Math.round(base * 0.5);
+  rules.overweight_fee_tiers = [{ maxKg: 32, fee: ow32 }, { maxKg: 45, fee: base * 3 }];
+  rules.overweight_fee_usd = ow32;
+  rules.overweight_fee_text = `23–32kg：USD ${ow32}（0.5×）/ 32–45kg：USD ${base * 3}（3×，需航司核可）`;
+  // Oversize = multiples too: 158–203cm → 1×, 203–292cm → 2×. Engine uses one value → the common 1× tier.
+  rules.oversize_fee_usd = base;
+  rules.oversize_fee_text = `158–203cm：USD ${base}（1×）/ 203–292cm：USD ${base * 2}（2×）`;
+  rules.notes = `长荣计件制（官网超额费率表）：${route}、${first ? '头等' : biz ? '商务' : '经济'}；超件 USD ${base}/件；超重 23–32kg=0.5×(USD ${ow32})、32–45kg=3×(USD ${base * 3}，需核可)；超尺寸 158–203cm=1×、203–292cm=2×。免费 2 件×${rules.standard_weight_kg}kg，单件≤45kg/292cm。⚠ 费率取自长荣官网费率表，仅供参考，以官网为准。`;
+  return rules;
+}
+
 function buildLookupPrompt(airlineCode, airlineName, cabin, origin, destination) {
   const hasRoute = origin && destination;
   const routeLine = hasRoute
@@ -3826,6 +3903,13 @@ async function lookupRules(airlineCode, airlineName, cabin, origin, destination,
       if (r.weight_concept_available) r.weight_concept_allowance_kg = parseFloat(allowance.weight);
       else r.standard_weight_kg = parseFloat(allowance.weight);
     }
+    return r;
+  }
+  // EVA Air: piece concept, hardcoded (Taipei-hub, official zone×zone rate table).
+  if (airlineCode === 'BR') {
+    const r = brBuildRules(cabin, origin, destination);
+    if (allowance.free !== 'auto') r.free_bags_per_pax = parseInt(allowance.free);
+    if (allowance.weight !== 'auto') r.standard_weight_kg = parseFloat(allowance.weight);
     return r;
   }
   // v3 cache: 90-day TTL (quarterly re-check; matches the proxy's Redis TTL).
