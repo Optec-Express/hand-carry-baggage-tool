@@ -2229,6 +2229,41 @@ function cxApplyZoneFees(rules, originIata, destIata) {
   }
 }
 
+// Build CX rules fully offline from the hardcoded zone tables — no network,
+// instant. Returns null when either endpoint's zone can't be resolved, so the
+// caller falls back to the live AI lookup (which can name unusual zones).
+function cxBuildRules(cabin, origin, destination) {
+  const biz = (cabin === '商务舱' || cabin === '头等舱');
+  const first = (cabin === '头等舱');
+  const oZone = CX_AIRPORT_ZONE[(origin || '').trim().toUpperCase()];
+  const dZone = CX_AIRPORT_ZONE[(destination || '').trim().toUpperCase()];
+  const o = CX_ZONE_INDEX[oZone], d = CX_ZONE_INDEX[dZone];
+  if (o === undefined || d === undefined) return null;
+  const excess = CX_EXCESS_FEE[o][d];
+  const over = CX_OVERWEIGHT_FEE[o][d];
+  const freeN = 2; // CX international default 2 pieces (fare-dependent; adjustable)
+  const zonePair = `${oZone}↔${dZone}`;
+  return {
+    airline_code: 'CX', airline_name_cn: '国泰航空', cabin_class: cabin,
+    weight_limit_kg: 32, length_limit_cm: null, width_limit_cm: null, height_limit_cm: null,
+    max_total_weight_kg: 0,
+    weight_concept_available: false, weight_concept_allowance_kg: null,
+    weight_concept_excess_fee_usd_per_kg: null, weight_concept_text: '',
+    piece_concept_available: true,
+    standard_linear_cm: 158, linear_limit_cm: 203,
+    standard_weight_kg: biz ? 32 : 23,
+    free_bags_per_pax: freeN,
+    max_bags_per_pax: freeN + 3,
+    excess_bag_fee_usd: excess,
+    excess_bag_fee_text: excess != null ? `USD ${excess}/件（${zonePair}，官方表）` : '未查到',
+    overweight_fee_usd: over,
+    overweight_fee_text: over != null ? `USD ${over}/件（23–32kg，${zonePair}，官方表）` : '未查到',
+    oversize_fee_usd: 200,
+    oversize_fee_text: 'USD 200/件（158–203cm，全航线统一，官方定值）',
+    notes: `国泰计件制（官网费率表）：${zonePair}、${first ? '头等' : biz ? '商务' : '经济'}；超件 USD ${excess}/件，超重 23–32kg USD ${over}/件，超尺寸 158–203cm USD 200/件。免费 ${freeN} 件×${biz ? 32 : 23}kg，单件≤32kg/203cm；每人最多加购 3 件（上限 ${freeN + 3} 件）。⚠ 免费件数随票价可能不同，以官网/机票为准。`,
+  };
+}
+
 // ── Korean Air (KE): official excess-baggage fees, hardcoded ──────────────
 // koreanair.com is bot-blocked (403 to all automated fetches), so fees can't
 // be fetched live. Captured from the official page (every zone × economy /
@@ -4002,6 +4037,18 @@ function renderMultiSummary(legs, leftoverItems) {
 
 // ─── Lookup one airline's finalized rules (cache → AI → code overrides) ───
 async function lookupRules(airlineCode, airlineName, cabin, origin, destination, allowance) {
+  // Cathay Pacific: hardcoded zone fee tables + fixed oversize. When both
+  // endpoints' zones resolve from the airport map, build offline — instant, no
+  // network. Only unresolved zones fall through to the live AI lookup below.
+  if (airlineCode === 'CX') {
+    const r = cxBuildRules(cabin, origin, destination);
+    if (r) {
+      if (allowance.free !== 'auto') { r.free_bags_per_pax = parseInt(allowance.free); r.max_bags_per_pax = (parseInt(allowance.free) || 0) + 3; }
+      if (allowance.weight !== 'auto') r.standard_weight_kg = parseFloat(allowance.weight);
+      return r;
+    }
+    // else: zone unresolved → continue to the AI path (cxApplyZoneFees still runs there)
+  }
   // Korean Air: fully hardcoded (site is bot-blocked). Build from local tables,
   // no network call — instant. Manual 免费件数 / 机票含kg overrides still apply.
   if (airlineCode === 'KE') {
