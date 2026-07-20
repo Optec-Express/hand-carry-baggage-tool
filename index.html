@@ -2200,6 +2200,17 @@ const CX_OVERWEIGHT_FEE = [
   [130,  130, 150, 150, 150],
   [150,  150, 150, 150, 150],
 ];
+// Weight concept (per kg, USD). Official table — note zones differ from the
+// piece tables: 第二区 and 第三区 are SEPARATE here, and there is NO Americas
+// column (第五/六区 have no weight-concept fares — piece only).
+const CX_WEIGHT_ZONE_INDEX = { '香港': 0, '往返香港': 0, 'HKG': 0, '第一区': 1, '第二区': 2, '第三区': 3, '第四区': 4 };
+const CX_WEIGHT_RATE = [
+  [null, 13, 20, 25, 45],
+  [13,   15, 20, 30, 45],
+  [20,   20, 35, 40, 45],
+  [25,   30, 40, 45, 65],
+  [45,   45, 45, 65, 65],
+];
 
 function cxApplyZoneFees(rules, originIata, destIata) {
   // CX oversize (158–203cm) is a flat USD 200/piece on ALL routes — an
@@ -2243,7 +2254,7 @@ function cxBuildRules(cabin, origin, destination) {
   const over = CX_OVERWEIGHT_FEE[o][d];
   const freeN = 2; // CX international default 2 pieces (fare-dependent; adjustable)
   const zonePair = `${oZone}↔${dZone}`;
-  return {
+  const r = {
     airline_code: 'CX', airline_name_cn: '国泰航空', cabin_class: cabin,
     weight_limit_kg: 32, length_limit_cm: null, width_limit_cm: null, height_limit_cm: null,
     max_total_weight_kg: 0,
@@ -2260,8 +2271,21 @@ function cxBuildRules(cabin, origin, destination) {
     overweight_fee_text: over != null ? `USD ${over}/件（23–32kg，${zonePair}，官方表）` : '未查到',
     oversize_fee_usd: 200,
     oversize_fee_text: 'USD 200/件（158–203cm，全航线统一，官方定值）',
-    notes: `国泰计件制（官网费率表）：${zonePair}、${first ? '头等' : biz ? '商务' : '经济'}；超件 USD ${excess}/件，超重 23–32kg USD ${over}/件，超尺寸 158–203cm USD 200/件。免费 ${freeN} 件×${biz ? 32 : 23}kg，单件≤32kg/203cm；每人最多加购 3 件（上限 ${freeN + 3} 件）。⚠ 免费件数随票价可能不同，以官网/机票为准。`,
+    notes: `国泰（官网费率表）：${zonePair}、${first ? '头等' : biz ? '商务' : '经济'}；计件超件 USD ${excess}/件、超重 23–32kg USD ${over}/件、超尺寸 158–203cm USD 200/件。免费 ${freeN} 件×${biz ? 32 : 23}kg，单件≤32kg/203cm；每人最多加购 3 件（上限 ${freeN + 3} 件）。⚠ 免费件数随票价可能不同，以官网/机票为准。`,
   };
+  // Weight concept (dual, like Qatar/Emirates): available up to zone 4; the
+  // engine compares piece vs weight and recommends the cheaper. Americas
+  // (第五/六区) have piece-concept fares only, so no weight rate there.
+  const wo = CX_WEIGHT_ZONE_INDEX[oZone], wd = CX_WEIGHT_ZONE_INDEX[dZone];
+  if (wo !== undefined && wd !== undefined && CX_WEIGHT_RATE[wo][wd] != null) {
+    const rate = CX_WEIGHT_RATE[wo][wd];
+    r.weight_concept_available = true;
+    r.weight_concept_allowance_kg = biz ? 40 : 30; // fare-dependent; adjustable via 机票含kg
+    r.weight_concept_excess_fee_usd_per_kg = rate;
+    r.weight_concept_text = `每公斤 USD ${rate}（${zonePair}）`;
+    r.notes += `；计重制每公斤 USD ${rate}（免费额度约 ${r.weight_concept_allowance_kg}kg，两制取便宜）`;
+  }
+  return r;
 }
 
 // ── Korean Air (KE): official excess-baggage fees, hardcoded ──────────────
@@ -4044,7 +4068,10 @@ async function lookupRules(airlineCode, airlineName, cabin, origin, destination,
     const r = cxBuildRules(cabin, origin, destination);
     if (r) {
       if (allowance.free !== 'auto') { r.free_bags_per_pax = parseInt(allowance.free); r.max_bags_per_pax = (parseInt(allowance.free) || 0) + 3; }
-      if (allowance.weight !== 'auto') r.standard_weight_kg = parseFloat(allowance.weight);
+      if (allowance.weight !== 'auto') {
+        if (r.weight_concept_available) r.weight_concept_allowance_kg = parseFloat(allowance.weight);
+        else r.standard_weight_kg = parseFloat(allowance.weight);
+      }
       return r;
     }
     // else: zone unresolved → continue to the AI path (cxApplyZoneFees still runs there)
