@@ -4541,7 +4541,7 @@ function renderResults(r) {
   // Cost
   const nCouriers = cost.total_couriers ?? couriers.length;
   const costRows = [
-    { l: '所需飞人', html: `<input type="number" id="force-couriers" min="1" value="${nCouriers}" onchange="recalc()" style="width:56px;text-align:right;padding:3px 6px;border:1px solid var(--line);border-radius:6px;font-size:14px;font-weight:600;color:var(--accent);"> 人 <span style="font-size:11px;color:var(--text-3);font-weight:400;">可改·人多免费额度多</span>` },
+    { l: '所需飞人', html: `<input type="number" id="force-couriers" min="1" value="${nCouriers}" onchange="recalc()" style="width:56px;text-align:right;padding:3px 6px;border:1px solid var(--line);border-radius:6px;font-size:14px;font-weight:600;color:var(--accent);"> 人` },
     { l: '总行李件数', v: `${cost.total_bags} 件${cost.total_boxes && cost.total_boxes !== cost.total_bags ? `（${cost.total_boxes} 箱合并）` : ''}` },
   ];
   // Only call it a "recommendation" when the airline offers both concepts
