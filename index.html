@@ -1422,6 +1422,12 @@ let lastRender = null; // last rendered result payload — feeds 复制打包方
 // (some were 404 or on dead domains). Note: many airline sites WAF-block
 // automated fetches — if a lookup keeps returning 未查到 for one of them, the
 // page is likely bot-blocked, not wrong; fill the fee manually.
+// Airlines whose fees are hardcoded from official tables in this file. Their
+// displayed values are trusted (backend-hardcoded / official-scraped). Every
+// OTHER airline's numbers come from the live AI lookup and are shown in pink to
+// flag "verify this — it's an AI estimate, not confirmed".
+const HARDCODED_AIRLINES = new Set(['CX','KE','JL','QR','EK','LH','AA','UA','NH','TK','BR','OZ','HX']);
+
 const BAGGAGE_LINKS = {
   CX: 'https://www.cathaypacific.com/cx/en_US/baggage/extra-baggage-charges/pay-cash-or-by-credit-card.html',
   HX: 'https://www.hongkongairlines.com/en_HK/fly-with-us/baggage/checked-baggage',
@@ -4438,10 +4444,14 @@ function renderResults(r) {
   // red = airline's fixed max-limit facts, green = what this ticket includes,
   // amber = fee rates. 每人最多可托运件数 is deliberately NOT grouped with
   // these — it's rendered in its own separate box outside the strip.
+  // AI-sourced airlines: every displayed number is an AI estimate, not confirmed
+  // official/hardcoded data → render pink to flag "verify this".
+  const aiSourced = !HARDCODED_AIRLINES.has(rules.airline_code);
+  const PINK = 'color:#e5308a;border-color:#e5308a;font-weight:600;';
   const editableInput = x =>
-    `<div class="rule-block"><span class="lbl">${x.l}</span>${x.prefix ? `<span class="lbl">${x.prefix}</span>` : ''}<input type="number" id="${x.id}" min="0" value="${x.v ?? ''}"${x.placeholder ? ` placeholder="${x.placeholder}"` : ''}>${x.unit ? `<span class="lbl">${x.unit}</span>` : ''}</div>`;
+    `<div class="rule-block"><span class="lbl">${x.l}</span>${x.prefix ? `<span class="lbl">${x.prefix}</span>` : ''}<input type="number" id="${x.id}" min="0" value="${x.v ?? ''}"${x.placeholder ? ` placeholder="${x.placeholder}"` : ''}${x.pink ? ` style="${PINK}"` : ''}>${x.unit ? `<span class="lbl">${x.unit}</span>` : ''}</div>`;
   const staticBlock = x =>
-    `<div class="rule-block"><span class="lbl">${x.l}</span><span class="val">${x.v}</span></div>`;
+    `<div class="rule-block"><span class="lbl">${x.l}</span><span class="val"${x.pink ? ` style="color:#e5308a;"` : ''}>${x.v}</span></div>`;
   const group = (groupClass, html) => `<div class="rule-group ${groupClass}">${html}</div>`;
 
   const maxGroup = [
@@ -4466,7 +4476,7 @@ function renderResults(r) {
     { id: 'rule-oversize-fee',   v: rules.oversize_fee_usd,     l: '超尺寸', prefix: 'USD', unit: '/件', placeholder: '未查到' },
   ];
 
-  const renderGroup = items => items.map(x => x.static ? staticBlock(x) : editableInput(x)).join('');
+  const renderGroup = items => items.map(x => { const y = { ...x, pink: aiSourced }; return y.static ? staticBlock(y) : editableInput(y); }).join('');
 
   document.getElementById('rules-strip').innerHTML =
     group('group-max', renderGroup(maxGroup))
@@ -4476,10 +4486,11 @@ function renderResults(r) {
   // These two reflect whatever's actually in `rules` right now — 0 on the very
   // first AI lookup (calculate() forces that), but after the user edits one and
   // hits 重新计算, the real value they set is echoed back instead of reverting.
+  const pinkStyle = aiSourced ? ` style="${PINK}"` : '';
   document.getElementById('rules-maxbags').innerHTML =
-    `<div class="section-hd" style="margin:14px 0 8px; width:100%;">人工调整<span style="font-size:11.5px; color:var(--text-3); font-weight:400; margin-left:10px;">以上数值可能与实际不符，可手动修改后重新计算</span></div>`
-    + `<div class="rule-block maxbags-block"><span class="lbl">每人最多可托运</span><input type="number" id="rule-maxbags" min="0" value="${rules.max_bags_per_pax ?? 0}"><span class="lbl">件</span></div>`
-    + `<div class="rule-block maxbags-block"><span class="lbl">每人最多限重</span><input type="number" id="rule-max-total-weight" min="0" value="${rules.max_total_weight_kg || ''}" placeholder="-"><span class="lbl">kg</span></div>`;
+    `<div class="section-hd" style="margin:14px 0 8px; width:100%;">人工调整<span style="font-size:11.5px; color:var(--text-3); font-weight:400; margin-left:10px;">以上数值可能与实际不符，可手动修改后重新计算${aiSourced ? '；<b style="color:#e5308a;">粉色 = AI 联网估算，非官网/写死，请务必核对</b>' : ''}</span></div>`
+    + `<div class="rule-block maxbags-block"><span class="lbl">每人最多可托运</span><input type="number" id="rule-maxbags" min="0" value="${rules.max_bags_per_pax ?? 0}"${pinkStyle}><span class="lbl">件</span></div>`
+    + `<div class="rule-block maxbags-block"><span class="lbl">每人最多限重</span><input type="number" id="rule-max-total-weight" min="0" value="${rules.max_total_weight_kg || ''}" placeholder="-"${pinkStyle}><span class="lbl">kg</span></div>`;
 
   // The airline note now lives in the 费用估算 card's right column (see below),
   // so keep this slot in the rules card empty.
