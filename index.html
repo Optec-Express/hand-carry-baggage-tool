@@ -180,6 +180,15 @@ body {
    it with a clean chevron. */
 .field select { padding-right: 32px !important; background-image: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'><path fill='none' stroke='%23566178' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round' d='M1 1.5l5 5 5-5'/></svg>") !important; background-repeat: no-repeat !important; background-position: right 12px center !important; background-size: 12px 8px !important; }
 
+/* ── Searchable airline combobox ─────────────────────────── */
+.field .combo { position: relative; }
+.field .combo-input { padding-right: 32px !important; background-image: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'><path fill='none' stroke='%23566178' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round' d='M1 1.5l5 5 5-5'/></svg>"); background-repeat: no-repeat; background-position: right 12px center; background-size: 12px 8px; }
+.combo-list { position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 60; background: #fff; border: 1px solid var(--line); border-radius: 10px; max-height: 300px; overflow-y: auto; box-shadow: 0 10px 28px rgba(20,40,80,.15); display: none; }
+.combo-list.open { display: block; }
+.combo-item { padding: 9px 14px; cursor: pointer; font-size: 14px; color: var(--text); white-space: nowrap; }
+.combo-item:hover, .combo-item.active { background: #eef2ff; }
+.combo-item .code { display: inline-block; min-width: 30px; font-weight: 700; color: var(--accent); margin-right: 8px; }
+
 /* ── Tabs ────────────────────────────────────────────────── */
 .tabs {
   display: flex;
@@ -1133,33 +1142,11 @@ body {
     <div class="settings-grid">
       <div class="field" id="field-airline">
         <label>目的航空公司</label>
-        <input type="text" id="sel-airline" list="airline-dl" autocomplete="off" spellcheck="false" value="CX" placeholder="敲代码或名称，如 QR" oninput="this.value=this.value.toUpperCase()">
-        <datalist id="airline-dl">
-          <option value="CX">CX · 国泰航空</option>
-          <option value="HX">HX · 香港航空</option>
-          <option value="JL">JL · 日本航空</option>
-          <option value="NH">NH · 全日空</option>
-          <option value="AA">AA · 美国航空</option>
-          <option value="UA">UA · 美国联合航空</option>
-          <option value="TK">TK · 土耳其航空</option>
-          <option value="QR">QR · 卡塔尔航空</option>
-          <option value="LH">LH · 汉莎航空</option>
-          <option value="PR">PR · 菲律宾航空</option>
-          <option value="SQ">SQ · 新加坡航空</option>
-          <option value="KE">KE · 大韩航空</option>
-          <option value="EK">EK · 阿联酋航空</option>
-          <option value="DL">DL · 达美航空</option>
-          <option value="AC">AC · 加拿大航空</option>
-          <option value="CA">CA · 中国国际航空</option>
-          <option value="CZ">CZ · 中国南方航空</option>
-          <option value="CI">CI · 中华航空</option>
-          <option value="BR">BR · 长荣航空</option>
-          <option value="OZ">OZ · 韩亚航空</option>
-          <option value="LX">LX · 瑞士国际航空</option>
-          <option value="MU">MU · 中国东方航空</option>
-          <option value="TG">TG · 泰国国际航空</option>
-          <option value="VN">VN · 越南航空</option>
-        </datalist>
+        <div class="combo" id="airline-combo">
+          <input type="text" id="airline-search" class="combo-input" autocomplete="off" spellcheck="false" placeholder="敲代码或名称，如 QR，或点开选">
+          <input type="hidden" id="sel-airline" value="CX">
+          <div class="combo-list" id="airline-list"></div>
+        </div>
       </div>
       <div class="field" id="field-cabin">
         <label>舱位</label>
@@ -1429,6 +1416,46 @@ let lastRender = null; // last rendered result payload — feeds 复制打包方
 // flag "verify this — it's an AI estimate, not confirmed".
 const HARDCODED_AIRLINES = new Set(['CX','KE','JL','QR','EK','LH','AA','UA','NH','TK','BR','OZ','HX']);
 
+// Single source of truth for the airline picker (searchable combobox) and the
+// multi-airline comparison rows.
+const AIRLINES = [
+  {c:'CX',n:'国泰航空'},{c:'HX',n:'香港航空'},{c:'JL',n:'日本航空'},{c:'NH',n:'全日空'},
+  {c:'AA',n:'美国航空'},{c:'UA',n:'美国联合航空'},{c:'TK',n:'土耳其航空'},{c:'QR',n:'卡塔尔航空'},
+  {c:'LH',n:'汉莎航空'},{c:'PR',n:'菲律宾航空'},{c:'SQ',n:'新加坡航空'},{c:'KE',n:'大韩航空'},
+  {c:'EK',n:'阿联酋航空'},{c:'DL',n:'达美航空'},{c:'AC',n:'加拿大航空'},{c:'CA',n:'中国国际航空'},
+  {c:'CZ',n:'中国南方航空'},{c:'CI',n:'中华航空'},{c:'BR',n:'长荣航空'},{c:'OZ',n:'韩亚航空'},
+  {c:'LX',n:'瑞士国际航空'},{c:'MU',n:'中国东方航空'},{c:'TG',n:'泰国国际航空'},{c:'VN',n:'越南航空'},
+];
+const airlineNameOf = code => (AIRLINES.find(a => a.c === code) || {}).n || code;
+const airlineOptionsHTML = () => AIRLINES.map(a => `<option value="${a.c}">${a.c} · ${a.n}</option>`).join('');
+
+function initAirlineCombo() {
+  const search = document.getElementById('airline-search');
+  const hidden = document.getElementById('sel-airline');
+  const list = document.getElementById('airline-list');
+  if (!search || !hidden || !list) return;
+  const pick = code => { const a = AIRLINES.find(x => x.c === code); if (!a) return; hidden.value = a.c; search.value = `${a.c} · ${a.n}`; };
+  const render = raw => {
+    const t = (raw || '').trim(), T = t.toUpperCase();
+    const items = AIRLINES.filter(a => !t || `${a.c} · ${a.n}`.toUpperCase().includes(T) || a.n.includes(t));
+    list.innerHTML = items.length
+      ? items.map(a => `<div class="combo-item" data-code="${a.c}"><span class="code">${a.c}</span>${a.n}</div>`).join('')
+      : `<div class="combo-item" style="color:var(--text-3);cursor:default;">无匹配航司</div>`;
+  };
+  search.addEventListener('focus', () => { render(''); list.classList.add('open'); search.select(); });
+  search.addEventListener('input', () => { render(search.value); list.classList.add('open'); });
+  list.addEventListener('mousedown', e => { const it = e.target.closest('.combo-item'); if (!it || !it.dataset.code) return; e.preventDefault(); pick(it.dataset.code); list.classList.remove('open'); });
+  search.addEventListener('blur', () => setTimeout(() => {
+    list.classList.remove('open');
+    const raw = search.value.trim(), T = raw.toUpperCase();
+    const a = AIRLINES.find(x => x.c === T) || AIRLINES.find(x => `${x.c} · ${x.n}`.toUpperCase() === T)
+      || AIRLINES.find(x => x.n === raw) || (T && AIRLINES.find(x => x.c.startsWith(T)))
+      || (raw && AIRLINES.find(x => x.n.includes(raw)));
+    pick(a ? a.c : (hidden.value || 'CX'));
+  }, 150));
+  pick(hidden.value || 'CX');
+}
+
 const BAGGAGE_LINKS = {
   CX: 'https://www.cathaypacific.com/cx/en_US/baggage/extra-baggage-charges/pay-cash-or-by-credit-card.html',
   HX: 'https://www.hongkongairlines.com/en_HK/fly-with-us/baggage/checked-baggage',
@@ -1459,6 +1486,7 @@ const BAGGAGE_LINKS = {
 // ─── Init ─────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   addRow();
+  initAirlineCombo();
   document.getElementById('tbl-body').addEventListener('input', updateCargoSummary);
 });
 
@@ -3932,7 +3960,7 @@ function addAirlineRow() {
   div.id = 'ar' + id;
   div.innerHTML =
     `<span class="ar-idx"></span>` +
-    `<select id="ar-air-${id}" class="ar-sel">${document.getElementById('airline-dl').innerHTML}</select>` +
+    `<select id="ar-air-${id}" class="ar-sel">${airlineOptionsHTML()}</select>` +
     `<select id="ar-cab-${id}" class="ar-sel ar-cab">${document.getElementById('sel-class').innerHTML}</select>` +
     `<label class="ar-mini">免费<select id="ar-free-${id}">${document.getElementById('sel-free-bags').innerHTML}</select></label>` +
     `<label class="ar-mini">含kg<select id="ar-wt-${id}">${document.getElementById('sel-bag-weight').innerHTML}</select></label>` +
@@ -4294,11 +4322,9 @@ async function calculate() {
   const { items, weightEstimated } = await gatherCargo();
   if (!items.length) { showErr('请至少填写一件货物的完整尺寸和重量'); return; }
 
-  const airlineEl = document.getElementById('sel-airline');
-  const airlineCode = (airlineEl.value || '').trim().toUpperCase();
-  const dlOpt = [...document.querySelectorAll('#airline-dl option')].find(o => o.value === airlineCode);
-  if (!dlOpt) { showErr('请敲入有效的航司代码（如 QR）并从下拉里选中'); airlineEl.focus(); return; }
-  const airlineName = dlOpt.textContent.split('·')[1]?.trim().split('—')[0].trim() || airlineCode;
+  const airlineCode = (document.getElementById('sel-airline').value || '').trim().toUpperCase();
+  if (!AIRLINES.some(a => a.c === airlineCode)) { showErr('请敲入有效的航司代码（如 QR）并从下拉里选中'); document.getElementById('airline-search').focus(); return; }
+  const airlineName = airlineNameOf(airlineCode);
   const cabin = document.getElementById('sel-class').value;
   const origin = document.getElementById('inp-origin').value.trim();
   const destination = document.getElementById('inp-destination').value.trim();
