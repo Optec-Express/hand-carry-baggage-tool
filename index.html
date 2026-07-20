@@ -3238,6 +3238,78 @@ function ozBuildRules(cabin, origin, destination) {
   return rules;
 }
 
+// ─── Hong Kong Airlines (HX) hardcoded fees ───────────────────────────────
+// Piece concept, HK-hub. Captured 2026-07 from HX's OFFICIAL published rate
+// tables (USD; also lists AUD/CAD/HKD). Zones: 香港(HK) + 5 regions. Symmetric
+// zone×zone matrices for excess-piece and overweight; oversize is a flat fee.
+// Free: econ 2×23kg / biz 2×32kg. Single piece ≤32kg & ≤203cm (over → cargo).
+const HX_REGIONS = {
+  HK: ['HKG'],
+  Z1: ['PEK','PKX','PVG','SHA','CAN','CTU','CKG','HGH','XMN','SZX','NKG','WUH','CSX','KMG','XIY','TAO','DLC','SYX','FOC','CGO','TSN','HAK','NNG','KWL','TPE','KHH','RMQ','NRT','HND','KIX','ITM','NGO','CTS','FUK','OKA','KKJ','ICN','GMP','PUS','CJU','HAN','SGN','DAD','CXR','PQC','BKK','DMK','HKT','CNX','USM','KBV','CGK','DPS','SUB','ROR','VTE','LPQ','SIN','KUL','PEN','BKI','KCH','LGK'],
+  Z2: ['MLE','KTM'],
+  Z3: ['SPN'],
+  Z4: ['SYD','MEL','BNE','PER','OOL','CNS','ADL'],
+  Z5: ['LAX','SFO','JFK','EWR','ORD','SEA','IAD','BOS','LAS','HNL','YVR','YYZ','YUL'],
+};
+const HX_REGION_CN = { HK:'香港', Z1:'第一区(中/台/日/韩/东南亚)', Z2:'第二区(马尔代夫/尼泊尔)', Z3:'第三区(北马里亚纳)', Z4:'第四区(澳洲)', Z5:'第五区(美加)' };
+const HX_LOOKUP = (() => { const m = {}; for (const k in HX_REGIONS) for (const a of HX_REGIONS[k]) m[a] = k; return m; })();
+function hxRegionOf(iata) { return HX_LOOKUP[(iata || '').trim().toUpperCase()] || null; }
+// Symmetric USD matrices (official tables).
+const HX_EXCESS = {
+  HK: { Z1:110, Z2:145, Z3:145, Z4:165, Z5:220 },
+  Z1: { HK:110, Z1:135, Z2:165, Z3:165, Z4:190, Z5:235 },
+  Z2: { HK:145, Z1:165, Z2:190, Z3:190, Z4:220, Z5:255 },
+  Z3: { HK:145, Z1:165, Z2:190, Z3:190, Z4:220, Z5:255 },
+  Z4: { HK:165, Z1:190, Z2:220, Z3:220, Z4:245, Z5:275 },
+  Z5: { HK:220, Z1:235, Z2:255, Z3:255, Z4:275, Z5:290 },
+};
+const HX_OVERWEIGHT = {
+  HK: { Z1:70, Z2:110, Z3:110, Z4:145, Z5:165 },
+  Z1: { HK:70, Z1:90, Z2:110, Z3:110, Z4:145, Z5:165 },
+  Z2: { HK:110, Z1:110, Z2:110, Z3:110, Z4:165, Z5:165 },
+  Z3: { HK:110, Z1:110, Z2:110, Z3:110, Z4:165, Z5:165 },
+  Z4: { HK:145, Z1:145, Z2:165, Z3:165, Z4:165, Z5:165 },
+  Z5: { HK:165, Z1:165, Z2:165, Z3:165, Z4:165, Z5:165 },
+};
+
+function hxBuildRules(cabin, origin, destination) {
+  const biz = (cabin === '商务舱' || cabin === '头等舱');
+  const first = (cabin === '头等舱');
+  const za = hxRegionOf(origin), zb = hxRegionOf(destination);
+  const rules = {
+    airline_code: 'HX', airline_name_cn: '香港航空', cabin_class: cabin,
+    weight_limit_kg: 32, length_limit_cm: null, width_limit_cm: null, height_limit_cm: null,
+    max_total_weight_kg: 0,
+    weight_concept_available: false, weight_concept_allowance_kg: null,
+    weight_concept_excess_fee_usd_per_kg: null, weight_concept_text: '',
+    piece_concept_available: true,
+    standard_linear_cm: 158, linear_limit_cm: 203,
+    standard_weight_kg: biz ? 32 : 23,
+    free_bags_per_pax: 2, max_bags_per_pax: 10,
+  };
+  const exc = (za && zb && HX_EXCESS[za]) ? HX_EXCESS[za][zb] : null;
+  const ow = (za && zb && HX_OVERWEIGHT[za]) ? HX_OVERWEIGHT[za][zb] : null;
+  if (exc == null) {
+    rules.excess_bag_fee_usd = null; rules.overweight_fee_usd = null; rules.oversize_fee_usd = null;
+    rules.excess_bag_fee_text = rules.overweight_fee_text = rules.oversize_fee_text = '未查到，请手动填写';
+    rules.notes = '香港航空按区域计件计费，无法识别该港口所属区域（或香港境内），请手动填写费率';
+    return rules;
+  }
+  const route = `${HX_REGION_CN[za]}↔${HX_REGION_CN[zb]}`;
+  rules.extra_first_fee_usd = exc;
+  rules.extra_second_fee_usd = exc;
+  rules.extra_rest_fee_usd = exc;
+  rules.excess_bag_fee_usd = exc;
+  rules.excess_bag_fee_text = `超免费额度后每件 USD ${exc}（≤23kg/158cm，${route}）`;
+  rules.overweight_fee_tiers = [{ maxKg: 32, fee: ow }];
+  rules.overweight_fee_usd = ow;
+  rules.overweight_fee_text = `23–32kg：USD ${ow}/件（${route}；超 32kg 走货运）`;
+  rules.oversize_fee_usd = 220;
+  rules.oversize_fee_text = 'USD 220/件（158–203cm；超 203cm 走货运）';
+  rules.notes = `香港航空计件制（官网费率表）：${route}、${first ? '头等' : biz ? '商务' : '经济'}；超件 USD ${exc}/件，超重 23–32kg USD ${ow}/件，超尺寸 158–203cm USD 220/件。免费 2 件×${rules.standard_weight_kg}kg，单件≤32kg/203cm，超出走货运。⚠ 费率取自香港航空官网费率表，以官网为准。`;
+  return rules;
+}
+
 function buildLookupPrompt(airlineCode, airlineName, cabin, origin, destination) {
   const hasRoute = origin && destination;
   const routeLine = hasRoute
@@ -3999,6 +4071,13 @@ async function lookupRules(airlineCode, airlineName, cabin, origin, destination,
   // Asiana Airlines: piece concept, hardcoded (Seoul-hub, official route-type table).
   if (airlineCode === 'OZ') {
     const r = ozBuildRules(cabin, origin, destination);
+    if (allowance.free !== 'auto') r.free_bags_per_pax = parseInt(allowance.free);
+    if (allowance.weight !== 'auto') r.standard_weight_kg = parseFloat(allowance.weight);
+    return r;
+  }
+  // Hong Kong Airlines: piece concept, hardcoded (HK-hub, official zone×zone table).
+  if (airlineCode === 'HX') {
+    const r = hxBuildRules(cabin, origin, destination);
     if (allowance.free !== 'auto') r.free_bags_per_pax = parseInt(allowance.free);
     if (allowance.weight !== 'auto') r.standard_weight_kg = parseFloat(allowance.weight);
     return r;
