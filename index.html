@@ -2979,6 +2979,104 @@ function nhBuildRules(cabin, origin, destination) {
   return rules;
 }
 
+// ─── Turkish Airlines (TK) hardcoded fees ─────────────────────────────────
+// DUAL system (like QR/EK), Istanbul-hub. Captured 2026-07 from TK's own
+// baggage calculator (per-route, shown in DEPARTURE-country currency; converted
+// to USD here → all figures are reference prices). BILLING SYSTEM depends on the
+// route: if either endpoint is in the Americas / Africa / Japan / Korea → PIECE
+// concept; otherwise → WEIGHT concept (per kg). Verified region-pairs (searched
+// today) carry a lighter "仅供参考"; un-searched pairs are extrapolated from the
+// rule and carry "仅供参考，请在官网核查".
+//   Weight routes  ≈ USD 30/kg  (measured cluster $27–32/kg to Europe & ME)
+//   Piece routes   ≈ USD 253/pc for Asia-Pacific↔Americas/Africa (far),
+//                  ≈ USD 210/pc otherwise (near; e.g. →Europe legs)
+const TK_REGIONS = {
+  FE:   ['PEK','PKX','PVG','SHA','CAN','CTU','CKG','HGH','XMN','SZX','NKG','WUH','CSX','KMG','XIY','TAO','DLC','SYX','HKG','MFM','TPE','KHH','RMQ','BKK','DMK','HKT','CNX','SIN','KUL','PEN','CGK','DPS','SUB','MNL','CEB','CRK','HAN','SGN','DAD','RGN','PNH','REP','VTE','BWN'],
+  JPKR: ['NRT','HND','KIX','ITM','NGO','CTS','FUK','OKA','KKJ','KOJ','HIJ','SDJ','KMJ','NGS','ICN','GMP','PUS','CJU','TAE'],
+  SASIA:['DEL','BOM','BLR','MAA','HYD','CCU','COK','AMD','GOI','DAC','CMB','KTM','ISB','KHI','LHE','MLE'],
+  OCE:  ['SYD','MEL','BNE','PER','ADL','AKL','CHC','WLG','OOL','CNS'],
+  EUR:  ['IST','SAW','ESB','ADB','AYT','LHR','LGW','MAN','CDG','ORY','FRA','MUC','DUS','BER','HAM','STR','CGN','MAD','BCN','AGP','FCO','MXP','VCE','NAP','AMS','BRU','ZRH','GVA','VIE','DUB','LIS','OPO','ATH','CPH','ARN','OSL','HEL','WAW','KRK','PRG','BUD','OTP','SOF','ZAG','BEG','SVO','DME','LED','KBP'],
+  ME:   ['DXB','AUH','SHJ','DOH','BAH','KWI','RUH','JED','DMM','MCT','AMM','BEY','BGW','EBL','TLV','IKA','THR'],
+  AFR:  ['CAI','HRG','SSH','JNB','CPT','DUR','NBO','MBA','ADD','LOS','ABV','ACC','DKR','ABJ','DAR','EBB','KGL','LAD','CMN','RAK','TUN','ALG','KRT','MPM','SEZ','MRU','TNR'],
+  AMER: ['JFK','EWR','LGA','BOS','IAD','ORD','DFW','IAH','MIA','LAX','SFO','SEA','ATL','DEN','LAS','YYZ','YUL','YVR','MEX','CUN','GDL','GRU','GIG','EZE','SCL','BOG','LIM','UIO','PTY','CCS','MVD','ASU','SDQ','PUJ','HAV','SJO','GUA','SAL'],
+};
+const TK_REGION_CN = { FE:'远东', JPKR:'日/韩', SASIA:'南亚', OCE:'大洋洲', EUR:'欧洲', ME:'中东', AFR:'非洲', AMER:'美洲' };
+const TK_LOOKUP = (() => { const m = {}; for (const k in TK_REGIONS) for (const a of TK_REGIONS[k]) m[a] = k; return m; })();
+function tkRegionOf(iata) { return TK_LOOKUP[(iata || '').trim().toUpperCase()] || null; }
+// Region-pairs actually searched in the calculator today (sorted-key set).
+const TK_VERIFIED = new Set(['EUR|FE','EUR|SASIA','EUR|OCE','FE|ME','EUR|JPKR','AMER|EUR','AFR|EUR','AMER|FE','AFR|FE']);
+const TK_PIECE_REGIONS = { JPKR:1, AFR:1, AMER:1 };
+const TK_APAC = { FE:1, JPKR:1, SASIA:1, OCE:1 };
+function tkZoneOf(origin, destination) {
+  const a = tkRegionOf(origin), b = tkRegionOf(destination);
+  if (!a || !b) return null;
+  const piece = !!(TK_PIECE_REGIONS[a] || TK_PIECE_REGIONS[b]);
+  // far = Asia-Pacific ↔ Americas/Africa (long haul via IST); near = other piece routes
+  const far = piece && ((TK_APAC[a] && (b === 'AMER' || b === 'AFR')) || (TK_APAC[b] && (a === 'AMER' || a === 'AFR')));
+  const verified = TK_VERIFIED.has([a, b].sort().join('|'));
+  return { a, b, piece, far, verified };
+}
+
+function tkBuildRules(cabin, origin, destination) {
+  const biz = (cabin === '商务舱' || cabin === '头等舱');
+  const first = (cabin === '头等舱');
+  const z = tkZoneOf(origin, destination);
+  const rules = {
+    airline_code: 'TK', airline_name_cn: '土耳其航空', cabin_class: cabin,
+    weight_limit_kg: 32, length_limit_cm: null, width_limit_cm: null, height_limit_cm: null,
+    max_total_weight_kg: 0,
+    weight_concept_available: false, weight_concept_allowance_kg: null,
+    weight_concept_excess_fee_usd_per_kg: null, weight_concept_text: '',
+    piece_concept_available: true,
+    standard_linear_cm: 158, linear_limit_cm: 300,
+    standard_weight_kg: biz ? 32 : 23,
+  };
+  if (!z) {
+    rules.linear_limit_cm = 158; rules.free_bags_per_pax = 2; rules.max_bags_per_pax = 2;
+    rules.excess_bag_fee_usd = null; rules.overweight_fee_usd = null; rules.oversize_fee_usd = null;
+    rules.excess_bag_fee_text = rules.overweight_fee_text = rules.oversize_fee_text = '未查到，请手动填写';
+    rules.notes = '土耳其航空按航线(计件/计重)计费，无法识别该港口所属地区，请手动填写费率';
+    return rules;
+  }
+  const ref = z.verified ? '仅供参考' : '仅供参考，请在官网核查';
+  const route = `${TK_REGION_CN[z.a]}↔${TK_REGION_CN[z.b]}`;
+  if (z.piece) {
+    const fee = z.far ? 253 : 210;
+    rules.free_bags_per_pax = 2;
+    rules.max_bags_per_pax = 2 + 10;
+    rules.extra_first_fee_usd = fee;
+    rules.extra_second_fee_usd = fee;
+    rules.extra_rest_fee_usd = fee;
+    rules.excess_bag_fee_usd = fee;
+    rules.excess_bag_fee_text = `超免费额度后每件 USD ${fee}（≤23kg，${route}）`;
+    rules.overweight_fee_usd = null; // TK piece-route per-piece overweight (23–32kg) not captured
+    rules.overweight_fee_text = '未查到，请在官网核查（单件23–32kg）';
+    rules.oversize_fee_usd = null;
+    rules.oversize_fee_text = '未查到，请在官网核查（超158cm）';
+    rules.notes = `土耳其计件制（航线一端沾美洲/非洲/日韩）：${route}、${first ? '头等' : biz ? '商务' : '经济'}；免费 2 件×23kg，超件约 USD ${fee}/件${z.far ? '（远程）' : ''}，单件≤32kg。⚠ 费率为 TK 计算器换算价，${ref}。`;
+    return rules;
+  }
+  // Weight concept
+  const rate = 30;
+  rules.standard_linear_cm = 300; rules.linear_limit_cm = 300;
+  rules.standard_weight_kg = 32;
+  rules.free_bags_per_pax = 2;
+  rules.max_bags_per_pax = 10;
+  rules.piece_concept_available = false;
+  rules.weight_concept_available = true;
+  rules.weight_concept_allowance_kg = first ? 50 : (biz ? 40 : 30); // econ default 30 (fare-dependent), override via 机票含kg
+  rules.weight_concept_excess_fee_usd_per_kg = rate;
+  rules.weight_concept_text = `每公斤约 USD ${rate}（${route}）`;
+  rules.excess_bag_fee_usd = null;
+  rules.excess_bag_fee_text = '按公斤计（见计重制）';
+  rules.overweight_fee_usd = 0;
+  rules.overweight_fee_text = '按公斤计';
+  rules.oversize_fee_usd = null;
+  rules.oversize_fee_text = '单件超 300cm 须走货运';
+  rules.notes = `土耳其计重制：${route}，超出免费额度部分每公斤约 USD ${rate}；免费额度 ${rules.weight_concept_allowance_kg}kg（${first ? '头等' : biz ? '商务' : '经济默认，可按实际机票在「机票含kg」改'}），单件≤32kg。⚠ 费率为 TK 计算器换算价，${ref}。`;
+  return rules;
+}
+
 function buildLookupPrompt(airlineCode, airlineName, cabin, origin, destination) {
   const hasRoute = origin && destination;
   const routeLine = hasRoute
@@ -3718,6 +3816,16 @@ async function lookupRules(airlineCode, airlineName, cabin, origin, destination,
     const r = nhBuildRules(cabin, origin, destination);
     if (allowance.free !== 'auto') r.free_bags_per_pax = parseInt(allowance.free);
     if (allowance.weight !== 'auto') r.standard_weight_kg = parseFloat(allowance.weight);
+    return r;
+  }
+  // Turkish Airlines: dual piece/weight system, hardcoded (calculator reference prices).
+  if (airlineCode === 'TK') {
+    const r = tkBuildRules(cabin, origin, destination);
+    if (allowance.free !== 'auto') r.free_bags_per_pax = parseInt(allowance.free);
+    if (allowance.weight !== 'auto') {
+      if (r.weight_concept_available) r.weight_concept_allowance_kg = parseFloat(allowance.weight);
+      else r.standard_weight_kg = parseFloat(allowance.weight);
+    }
     return r;
   }
   // v3 cache: 90-day TTL (quarterly re-check; matches the proxy's Redis TTL).
