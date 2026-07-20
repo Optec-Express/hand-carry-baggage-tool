@@ -1133,7 +1133,8 @@ body {
     <div class="settings-grid">
       <div class="field" id="field-airline">
         <label>目的航空公司</label>
-        <select id="sel-airline">
+        <input type="text" id="sel-airline" list="airline-dl" autocomplete="off" spellcheck="false" value="CX" placeholder="敲代码或名称，如 QR" oninput="this.value=this.value.toUpperCase()">
+        <datalist id="airline-dl">
           <option value="CX">CX · 国泰航空</option>
           <option value="HX">HX · 香港航空</option>
           <option value="JL">JL · 日本航空</option>
@@ -1158,7 +1159,7 @@ body {
           <option value="MU">MU · 中国东方航空</option>
           <option value="TG">TG · 泰国国际航空</option>
           <option value="VN">VN · 越南航空</option>
-        </select>
+        </datalist>
       </div>
       <div class="field" id="field-cabin">
         <label>舱位</label>
@@ -3931,7 +3932,7 @@ function addAirlineRow() {
   div.id = 'ar' + id;
   div.innerHTML =
     `<span class="ar-idx"></span>` +
-    `<select id="ar-air-${id}" class="ar-sel">${document.getElementById('sel-airline').innerHTML}</select>` +
+    `<select id="ar-air-${id}" class="ar-sel">${document.getElementById('airline-dl').innerHTML}</select>` +
     `<select id="ar-cab-${id}" class="ar-sel ar-cab">${document.getElementById('sel-class').innerHTML}</select>` +
     `<label class="ar-mini">免费<select id="ar-free-${id}">${document.getElementById('sel-free-bags').innerHTML}</select></label>` +
     `<label class="ar-mini">含kg<select id="ar-wt-${id}">${document.getElementById('sel-bag-weight').innerHTML}</select></label>` +
@@ -4294,8 +4295,10 @@ async function calculate() {
   if (!items.length) { showErr('请至少填写一件货物的完整尺寸和重量'); return; }
 
   const airlineEl = document.getElementById('sel-airline');
-  const airlineCode = airlineEl.value;
-  const airlineName = airlineEl.selectedOptions[0].text.split('·')[1]?.trim().split('—')[0].trim() || airlineCode;
+  const airlineCode = (airlineEl.value || '').trim().toUpperCase();
+  const dlOpt = [...document.querySelectorAll('#airline-dl option')].find(o => o.value === airlineCode);
+  if (!dlOpt) { showErr('请敲入有效的航司代码（如 QR）并从下拉里选中'); airlineEl.focus(); return; }
+  const airlineName = dlOpt.textContent.split('·')[1]?.trim().split('—')[0].trim() || airlineCode;
   const cabin = document.getElementById('sel-class').value;
   const origin = document.getElementById('inp-origin').value.trim();
   const destination = document.getElementById('inp-destination').value.trim();
