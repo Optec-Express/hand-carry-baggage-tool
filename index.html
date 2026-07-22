@@ -1650,7 +1650,7 @@ body::before {
       <h3 id="fb-title">💬 意见反馈</h3>
       <div class="fb-desc">用起来遇到问题或有建议？写下来，我们会收到并跟进。</div>
       <textarea id="fb-text" placeholder="请描述你遇到的问题或想要的功能…"></textarea>
-      <input type="text" class="fb-contact" id="fb-contact" value="group-dx@optec-exp.com" placeholder="联系方式（选填，方便回复你）">
+      <input type="text" class="fb-contact" id="fb-contact" onblur="stripEmailDomain(this)" placeholder="你的名字或邮箱前缀，如 zhangsan（@optec-exp.com）">
       <div class="fb-err" id="fb-err" style="display:none;"></div>
       <div class="modal-btns" style="margin-top:14px;">
         <button class="btn-outline" onclick="closeFeedback()">取消</button>
@@ -1797,11 +1797,21 @@ function toast(msg) {
 }
 
 // ─── User feedback → Slack ────────────────────────────────
+// Keep only the part before "@" — the company domain is always the same, so
+// the contact field just shows the person's username.
+function stripEmailDomain(el) { el.value = el.value.trim().split('@')[0].trim(); }
+
 function openFeedback() {
   // Reset to the form view every time it opens.
   document.getElementById('fb-form').style.display = '';
   document.getElementById('fb-done').style.display = 'none';
   document.getElementById('fb-err').style.display = 'none';
+  // No login exists, so we can't know who's using it automatically. Instead we
+  // remember whoever last identified themselves on THIS browser and prefill it.
+  const contactEl = document.getElementById('fb-contact');
+  if (!contactEl.value) {
+    try { contactEl.value = localStorage.getItem('fb-user') || ''; } catch (_) {}
+  }
   document.getElementById('fb-overlay').classList.add('open');
   setTimeout(() => document.getElementById('fb-text').focus(), 50);
 }
@@ -1814,7 +1824,9 @@ async function submitFeedback() {
   const message = textEl.value.trim();
   errEl.style.display = 'none';
   if (!message) { errEl.textContent = '请先填写反馈内容'; errEl.style.display = ''; textEl.focus(); return; }
-  const contact = document.getElementById('fb-contact').value.trim();
+  // Store/send only the username part; remember it on this browser for next time.
+  const contact = document.getElementById('fb-contact').value.trim().split('@')[0].trim();
+  if (contact) { try { localStorage.setItem('fb-user', contact); } catch (_) {} }
 
   // Light context to help triage: current airline + route, if filled in.
   let context = '';
