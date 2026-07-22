@@ -338,6 +338,37 @@ body {
   font-weight: 700;
 }
 
+/* 合计行 + 不可堆叠开关同排 */
+.cargo-summary-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+.cargo-summary-row .cargo-summary { margin-top: 0; }
+.nostack-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 12.5px;
+  color: var(--text-2);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.nostack-toggle input { width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer; margin: 0; }
+.nostack-toggle:has(input:checked) {
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
 /* Editable totals in the OCR summary line (件数 / 重量) */
 .ocr-sum-input {
   width: 62px;
@@ -1258,7 +1289,13 @@ body {
           <tbody id="tbl-body"></tbody>
         </table>
       </div>
-      <div class="cargo-summary" id="cargo-summary">合计：<b>0</b> 件 · <b>0.0</b> kg</div>
+      <div class="cargo-summary-row">
+        <label class="nostack-toggle" title="客户要求货物不可堆叠时勾选：每个箱子按一件行李计算，不做合并打包">
+          <input type="checkbox" id="chk-no-stacking" onchange="toggleNoStacking(this)">
+          <span>不可堆叠（每箱一件）</span>
+        </label>
+        <div class="cargo-summary" id="cargo-summary">合计：<b>0</b> 件 · <b>0.0</b> kg</div>
+      </div>
     </div>
 
     <!-- Paste tab -->
@@ -1420,6 +1457,10 @@ let nextAirlineId = 1;
 let lastMultiLegs = [];   // last multi-airline result, per leg (for click-to-detail)
 let lastCalc = null; // { items, rules, allowance } — lets recalc() rerun packCouriers() without a new AI call
 let lastRender = null; // last rendered result payload — feeds 复制打包方案
+
+// 客户要求不可堆叠时置 true：packCouriers() 跳过所有合并策略，每箱算一件行李。
+// packCouriers() 直接读它，故单航司/多航司/重新计算/体积估重各路径都覆盖。
+let noStacking = false;
 
 // Best-effort links to each airline's own official baggage-policy page.
 // Not guaranteed current — airlines restructure their sites; shown as a
@@ -1755,6 +1796,14 @@ function updateCargoSummary() {
   if (el) el.innerHTML = `合计：<b>${totalQty}</b> 件 · <b>${totalKg.toFixed(2)}</b> kg` + suffix;
 }
 
+// 客户要求不可堆叠：勾选后每箱算一件、不合并。已有结果时立即按新模式重算，
+// 否则只记状态，下次点「计算」时生效。
+function toggleNoStacking(el) {
+  noStacking = !!el.checked;
+  toast(noStacking ? '已设为不可堆叠：每箱按一件计算' : '已恢复可堆叠（合并打包）');
+  if (lastCalc) recalc();
+}
+
 // ─── Paste import ─────────────────────────────────────────
 async function importPaste() {
   const raw = document.getElementById('paste-area').value.trim();
@@ -1987,6 +2036,10 @@ function resetAll() {
   const note = document.getElementById('cargo-import-note');
   if (note) { note.style.display = 'none'; note.innerHTML = ''; }
   importedTotalWeightKg = null;
+  // 不可堆叠开关复位
+  noStacking = false;
+  const nsChk = document.getElementById('chk-no-stacking');
+  if (nsChk) nsChk.checked = false;
   // route + manual overrides
   document.getElementById('inp-origin').value = '';
   document.getElementById('inp-destination').value = '';
@@ -3564,6 +3617,21 @@ function packCouriers(items, rules) {
   const stdKg      = rules.standard_weight_kg || hardKg;
   const stdLinear  = rules.standard_linear_cm || 158;
 
+  // 客户要求不可堆叠：每箱就是一件，不做任何合并。只出这一种方案，不比较堆叠策略。
+  // mergeBoxes 的 kgCap<=0 分支正好返回「每箱一件」，超尺寸/超重按单箱各自判定。
+  if (noStacking) {
+    const pieces = bundlesToPieces(mergeBoxes(boxes, rules, 0, 0), rules);
+    const run = assignAndPrice(pieces, rules, '不可堆叠（每箱一件）', boxes.length);
+    run.cost.no_stacking = true;
+    run.cost.strategy_comparison = [{
+      label: run.strategy_label, also: [],
+      couriers: run.cost.total_couriers, bags: run.cost.total_bags, usd: run.cost.total_usd,
+      chosen: true, extra_people: 0, fee_delta: 0,
+    }];
+    run.summary = `【打包策略：${run.strategy_label}】` + run.summary;
+    return run;
+  }
+
   // 散件直运（不合并）和标准件拼装（全拼成小标准件）都要多派好几个人，
   // 现实中不会这么打包，用户明确不要，已移除。只保留真正会用的拼装方式。
   const strategies = [
@@ -4563,7 +4631,8 @@ function copyPlan() {
   const destination = document.getElementById('inp-destination').value.trim();
   const lines = [];
   lines.push(`【打包方案】${rules.airline_code || ''} ${rules.airline_name_cn || ''} · ${rules.cabin_class || ''}${origin && destination ? `（${origin}→${destination}）` : ''}`);
-  lines.push(`共 ${cost.total_couriers ?? couriers.length} 位飞人 · ${cost.total_bags ?? '-'} 件行李（${cost.total_boxes ?? '-'} 箱合并）· 预计行李费 USD ${(cost.total_usd || 0).toLocaleString()}`);
+  const boxNote = (cost.total_boxes && cost.total_boxes !== cost.total_bags) ? `（${cost.total_boxes} 箱合并）` : (cost.no_stacking ? '（不可堆叠，每箱一件）' : '');
+  lines.push(`共 ${cost.total_couriers ?? couriers.length} 位飞人 · ${cost.total_bags ?? '-'} 件行李${boxNote} · 预计行李费 USD ${(cost.total_usd || 0).toLocaleString()}`);
   couriers.forEach(cr => {
     const bags = cr.bags || [];
     const w = Math.round(bags.reduce((s, b) => s + (b.total_weight_kg || 0), 0) * 10) / 10;
@@ -4582,7 +4651,9 @@ function copyPlan() {
     });
   });
   lines.push('');
-  lines.push('打包要求：每件行李按序号 ① 在最底层、依次向上码放；单箱重量为估算，装完请实称核对总重。');
+  lines.push(cost.no_stacking
+    ? '打包要求：客户要求不可堆叠，每箱单独作一件、不得叠放合并；单箱重量为估算，装完请实称核对总重。'
+    : '打包要求：每件行李按序号 ① 在最底层、依次向上码放；单箱重量为估算，装完请实称核对总重。');
   const text = lines.join('\n');
   const done = () => toast('打包方案已复制，可直接粘贴给工人');
   if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -4608,6 +4679,8 @@ function stackCaption(stack) {
   const L = Math.max(...stack.map(b => b.l));
   const W = Math.max(...stack.map(b => b.w));
   const H = Math.round(stack.reduce((s, b) => s + b.h, 0) * 10) / 10;
+  // 单箱一件（含不可堆叠模式）无需码放说明
+  if (stack.length <= 1) return `单箱 ${L}×${W}×${H} cm（长×宽×高）`;
   return `打包外廓 ${L}×${W}×${H} cm（长×宽×高）· ①在底层，依次向上码放`;
 }
 
@@ -4754,7 +4827,7 @@ function renderResults(r) {
   const nCouriers = cost.total_couriers ?? couriers.length;
   const costRows = [
     { l: '所需飞人', html: `<input type="number" id="force-couriers" min="1" value="${nCouriers}" onchange="recalc()" style="width:56px;text-align:right;padding:3px 6px;border:1px solid var(--line);border-radius:6px;font-size:14px;font-weight:600;color:var(--accent);"> 人` },
-    { l: '总行李件数', v: `${cost.total_bags} 件${cost.total_boxes && cost.total_boxes !== cost.total_bags ? `（${cost.total_boxes} 箱合并）` : ''}` },
+    { l: '总行李件数', v: `${cost.total_bags} 件${cost.total_boxes && cost.total_boxes !== cost.total_bags ? `（${cost.total_boxes} 箱合并）` : (cost.no_stacking ? '（不可堆叠，每箱一件）' : '')}` },
   ];
   // Only call it a "recommendation" when the airline offers both concepts
   // and there was actually a cheaper one to pick; with a single concept
