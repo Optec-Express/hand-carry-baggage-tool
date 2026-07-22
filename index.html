@@ -410,31 +410,6 @@ body::before {
   font-weight: 700;
 }
 
-/* 合计行 + 不可堆叠开关同排 */
-.cargo-summary-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-  margin-top: 10px;
-}
-.cargo-summary-row .cargo-summary { margin-top: 0; }
-.nostack-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 7px 12px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  font-size: 12.5px;
-  color: var(--text-2);
-  cursor: pointer;
-  user-select: none;
-  white-space: nowrap;
-}
-.nostack-toggle input { width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer; margin: 0; }
-
 /* 清空按钮：实心橘色，醒目 */
 #reset-btn {
   background: #FFEDD5;
@@ -450,12 +425,6 @@ body::before {
 #reset-btn:hover {
   background: #FED7AA;
   border-color: #FB923C;
-}
-.nostack-toggle:has(input:checked) {
-  border-color: var(--accent);
-  color: var(--accent);
-  font-weight: 600;
-  background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
 
 /* Editable totals in the OCR summary line (件数 / 重量) */
@@ -1465,7 +1434,13 @@ body::before {
 
   <!-- Cargo Input -->
   <div class="card">
-    <div class="card-title">货物清单</div>
+    <div class="card-title" style="display:flex; align-items:center; gap:12px;">
+      货物清单
+      <div class="mode-seg" id="stack-seg" role="tablist" aria-label="堆叠方式" style="margin-left:auto;">
+        <button type="button" class="on" id="stack-yes" role="tab" aria-selected="true" onclick="setStacking(true)">可堆叠</button>
+        <button type="button" id="stack-no" role="tab" aria-selected="false" onclick="setStacking(false)" title="客户要求货物不可堆叠时选择：每个箱子按一件行李计算，不做合并打包">不可堆叠</button>
+      </div>
+    </div>
 
     <div style="display:flex; align-items:center; gap:16px; margin-bottom:16px;">
       <div class="tabs" style="margin-bottom:0; flex:0 0 auto;">
@@ -1507,13 +1482,7 @@ body::before {
           <tbody id="tbl-body"></tbody>
         </table>
       </div>
-      <div class="cargo-summary-row">
-        <label class="nostack-toggle" title="客户要求货物不可堆叠时勾选：每个箱子按一件行李计算，不做合并打包">
-          <input type="checkbox" id="chk-no-stacking" onchange="toggleNoStacking(this)">
-          <span>不可堆叠（每箱一件）</span>
-        </label>
-        <div class="cargo-summary" id="cargo-summary">合计：<b>0</b> 件 · <b>0.0</b> kg</div>
-      </div>
+      <div class="cargo-summary" id="cargo-summary">合计：<b>0</b> 件 · <b>0.0</b> kg</div>
     </div>
 
     <!-- Paste tab -->
@@ -2122,12 +2091,23 @@ function updateCargoSummary() {
   if (el) el.innerHTML = `合计：<b>${totalQty}</b> 件 · <b>${totalKg.toFixed(2)}</b> kg` + suffix;
 }
 
-// 客户要求不可堆叠：勾选后每箱算一件、不合并。已有结果时立即按新模式重算，
-// 否则只记状态，下次点「计算」时生效。
-function toggleNoStacking(el) {
-  noStacking = !!el.checked;
+// 堆叠方式分段开关（可堆叠 / 不可堆叠）。选「不可堆叠」后每箱算一件、不合并。
+// 已有结果时立即按新模式重算，否则只记状态，下次点「计算」时生效。
+function setStacking(canStack) {
+  noStacking = !canStack;
+  syncStackSeg();
   toast(noStacking ? '已设为不可堆叠：每箱按一件计算' : '已恢复可堆叠（合并打包）');
   if (lastCalc) recalc();
+}
+// Reflect noStacking into the segmented control's active button + aria state.
+function syncStackSeg() {
+  const yes = document.getElementById('stack-yes');
+  const no = document.getElementById('stack-no');
+  if (!yes || !no) return;
+  yes.classList.toggle('on', !noStacking);
+  no.classList.toggle('on', noStacking);
+  yes.setAttribute('aria-selected', String(!noStacking));
+  no.setAttribute('aria-selected', String(noStacking));
 }
 
 // ─── Paste import ─────────────────────────────────────────
@@ -2362,10 +2342,9 @@ function resetAll() {
   const note = document.getElementById('cargo-import-note');
   if (note) { note.style.display = 'none'; note.innerHTML = ''; }
   importedTotalWeightKg = null;
-  // 不可堆叠开关复位
+  // 堆叠方式复位到「可堆叠」
   noStacking = false;
-  const nsChk = document.getElementById('chk-no-stacking');
-  if (nsChk) nsChk.checked = false;
+  syncStackSeg();
   // route + manual overrides
   document.getElementById('inp-origin').value = '';
   document.getElementById('inp-destination').value = '';
