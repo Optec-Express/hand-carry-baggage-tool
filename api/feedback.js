@@ -32,17 +32,13 @@ export default async function handler(req, res) {
   const contact = (body.contact || '').toString().trim().slice(0, 200);
   const context = (body.context || '').toString().trim().slice(0, 400);
 
-  // Block Kit message: a header, then a clearly-labelled 提出人 / 内容 body,
-  // with the airline/route as a small context footer.
+  // Block Kit message: a header, then a clearly-labelled 提出人 / 内容 body.
   const submitter = contact || '未填写';
   const body = [`*提出人：*　${submitter}`, `*内容：*　${message}`].join('\n');
   const blocks = [
     { type: 'header', text: { type: 'plain_text', text: '📣 手提行李工具 · 用户反馈', emoji: true } },
     { type: 'section', text: { type: 'mrkdwn', text: body } },
   ];
-  if (context) {
-    blocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text: context }] });
-  }
   // `text` is the notification fallback; blocks render the rich message.
   const payload = { text: `用户反馈（${submitter}）：${message.slice(0, 120)}`, blocks };
 
