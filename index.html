@@ -1684,7 +1684,7 @@ let noStacking = false;
 // displayed values are trusted (backend-hardcoded / official-scraped). Every
 // OTHER airline's numbers come from the live AI lookup and are shown in pink to
 // flag "verify this — it's an AI estimate, not confirmed".
-const HARDCODED_AIRLINES = new Set(['CX','KE','JL','QR','EK','LH','AA','UA','NH','TK','BR','OZ','HX']);
+const HARDCODED_AIRLINES = new Set(['CX','KE','JL','QR','EK','LH','AA','UA','NH','TK','BR','OZ','HX','5J']);
 
 // One flyer realistically hauls ~100–150kg. When an airline publishes no
 // per-person total-weight cap, we fall back to this in packing AND surface it
@@ -1701,7 +1701,7 @@ const AIRLINES = [
   {c:'EK',n:'阿联酋航空'},{c:'DL',n:'达美航空'},{c:'AC',n:'加拿大航空'},{c:'CA',n:'中国国际航空'},
   {c:'CZ',n:'中国南方航空'},{c:'CI',n:'中华航空'},{c:'BR',n:'长荣航空'},{c:'OZ',n:'韩亚航空'},
   {c:'LX',n:'瑞士国际航空'},{c:'MU',n:'中国东方航空'},{c:'TG',n:'泰国国际航空'},{c:'VN',n:'越南航空'},
-  {c:'UO',n:'香港快运'},{c:'MM',n:'乐桃航空'},
+  {c:'UO',n:'香港快运'},{c:'MM',n:'乐桃航空'},{c:'5J',n:'宿务太平洋'},
 ];
 const airlineNameOf = code => (AIRLINES.find(a => a.c === code) || {}).n || code;
 const airlineOptionsHTML = () => AIRLINES.map(a => `<option value="${a.c}">${a.c} · ${a.n}</option>`).join('');
@@ -3848,6 +3848,75 @@ function hxBuildRules(cabin, origin, destination) {
   return rules;
 }
 
+// ── Cebu Pacific (5J): low-cost carrier, no free allowance ────────────────
+// LCC model: every checked bag is a PREPAID 20kg piece; each piece can be
+// upgraded +4/+8/+12kg up to 32kg. Priced in PHP by haul bucket (domestic /
+// intl short / intl long). Online rates captured from cebupacificair.com's
+// official baggage page (screenshots supplied by the user, 2026-07), converted
+// to USD at a fixed reference FX so figures sit alongside the rest of the tool.
+// Both the PHP source and the FX drift — everything is marked reference/以官网为准.
+const CEB_PHP_PER_USD = 61.8;                 // 2026-07 reference rate; update when it drifts
+const cebUsd = php => Math.round(php / CEB_PHP_PER_USD);
+// [20kg piece price, per-4kg upgrade step, CEB Special (oversize)] — PHP, ONLINE rates.
+const CEB_RATE_PHP = {
+  domestic: { piece: 1000, step: 700,  special: 2000 },
+  short:    { piece: 2000, step: 1100, special: 3500 },
+  long:     { piece: 3000, step: 1700, special: 5000 },
+};
+const CEB_HAUL_CN = { domestic: '菲律宾国内', short: '国际短程', long: '国际长程' };
+// 5J's ONLY long-haul destinations; every other international route is short-haul.
+const CEB_LONG = new Set(['DXB','SYD','MEL']);
+// Philippine domestic airports 5J serves — both endpoints in here ⇒ domestic.
+const CEB_PH = new Set(['MNL','CEB','DVO','CRK','ILO','KLO','PPS','TAG','BCD','CGY','DGT','TAC','GES','LGP','CYZ','MPH','SUG','ZAM','DPL','TUG','LAO','CGM','MBT','RXS','BXU','OZC','CBO','JOL','TWT','MRQ','WNP','SJI','VRC','CYP','USU','ENI','SWL','IAO','TBH','SFS','DRP','CDY','BPH','LWA']);
+function cebHaulOf(origin, destination) {
+  const O = (origin || '').trim().toUpperCase(), D = (destination || '').trim().toUpperCase();
+  if (CEB_LONG.has(O) || CEB_LONG.has(D)) return 'long';
+  if (O && D && CEB_PH.has(O) && CEB_PH.has(D)) return 'domestic';
+  if (O && D) return 'short';   // both known, neither long-haul, not both-PH ⇒ intl short-haul
+  return null;                   // route incomplete → caller defaults with a warning
+}
+
+function cebuBuildRules(cabin, origin, destination) {
+  let haul = cebHaulOf(origin, destination);
+  const uncertain = !haul;
+  if (uncertain) haul = 'short';        // most 5J international is short-haul; flagged in notes
+  const p = CEB_RATE_PHP[haul];
+  const haulCn = CEB_HAUL_CN[haul];
+  const piece = cebUsd(p.piece);
+  const step = cebUsd(p.step);
+  const special = cebUsd(p.special);
+  // Overweight = the per-4kg upgrade steps beyond the piece's included 20kg:
+  // 20–24kg → 1 step, 24–28kg → 2 steps, 28–32kg → 3 steps (max upgrade = 32kg).
+  const owTiers = [
+    { maxKg: 24, fee: step },
+    { maxKg: 28, fee: step * 2 },
+    { maxKg: 32, fee: step * 3 },
+  ];
+  const rules = {
+    airline_code: '5J', airline_name_cn: '宿务太平洋', cabin_class: cabin,
+    weight_limit_kg: 32, length_limit_cm: null, width_limit_cm: null, height_limit_cm: null,
+    linear_limit_cm: null,
+    max_total_weight_kg: 96,               // ≤3 pieces × 32kg per passenger (online cap)
+    weight_concept_available: false, weight_concept_allowance_kg: null,
+    weight_concept_excess_fee_usd_per_kg: null, weight_concept_text: '',
+    piece_concept_available: true,
+    free_bags_per_pax: 0, max_bags_per_pax: 3,   // LCC: nothing free; up to 3 prepaid pieces online
+    standard_weight_kg: 20,
+    // 5J's oversize is a single-longest-side rule (>39in/≈99cm) the packer's
+    // linear-SUM model can't express, so auto-oversize is disabled (huge value)
+    // and the CEB Special fee is surfaced in notes for manual handling instead.
+    standard_linear_cm: 99999, oversize_fee_usd: null,
+    excess_bag_fee_usd: piece,
+    excess_bag_fee_text: `每件 20kg USD ${piece}（${haulCn}·官网在线价，约 PHP ${p.piece}）`,
+    overweight_fee_tiers: owTiers,
+    overweight_fee_usd: step,             // representative (1 step) for the strip / missing-fee check
+    overweight_fee_text: `升级 +4/+8/+12kg 各 USD ${step}/${step * 2}/${step * 3}（约 PHP ${p.step}/4kg），单件≤32kg`,
+  };
+  rules.notes = `宿务太平洋 5J（廉航·官网在线价，${haulCn}）：无免费额度，每件 20kg 约 USD ${piece}（PHP ${p.piece}），单件可升级至 32kg（+4/+8/+12kg 各约 USD ${step}/步，PHP ${p.step}/4kg），单件上限 32kg，每人在线最多买 3 件。超大型（最长边 >39 吋/约 99cm）另收 CEB Special Baggage 约 USD ${special}（PHP ${p.special}）——本工具不自动计入，请人工判断。手提 7kg。⚠ 官网 PHP 价按 1 USD≈${CEB_PHP_PER_USD} PHP 换算，仅供参考，以官网为准。`;
+  if (uncertain) rules.notes = `⚠ 未填/未识别始发港·目的港，已按「国际短程」估算（长程仅迪拜 DXB／悉尼 SYD／墨尔本 MEL；菲律宾境内互飞为国内价）。请填写始发港/目的港核实。\n` + rules.notes;
+  return rules;
+}
+
 function buildLookupPrompt(airlineCode, airlineName, cabin, origin, destination) {
   const hasRoute = origin && destination;
   const routeLine = hasRoute
@@ -4661,6 +4730,14 @@ async function lookupRules(airlineCode, airlineName, cabin, origin, destination,
   // Hong Kong Airlines: piece concept, hardcoded (HK-hub, official zone×zone table).
   if (airlineCode === 'HX') {
     const r = hxBuildRules(cabin, origin, destination);
+    if (allowance.free !== 'auto') r.free_bags_per_pax = parseInt(allowance.free);
+    if (allowance.weight !== 'auto') r.standard_weight_kg = parseFloat(allowance.weight);
+    return r;
+  }
+  // Cebu Pacific: LCC, hardcoded official ONLINE rates (PHP→USD). No free
+  // allowance — every piece is a paid 20kg prepaid bag. Priced by haul bucket.
+  if (airlineCode === '5J') {
+    const r = cebuBuildRules(cabin, origin, destination);
     if (allowance.free !== 'auto') r.free_bags_per_pax = parseInt(allowance.free);
     if (allowance.weight !== 'auto') r.standard_weight_kg = parseFloat(allowance.weight);
     return r;
