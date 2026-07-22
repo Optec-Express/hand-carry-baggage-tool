@@ -1434,6 +1434,12 @@ let lastRender = null; // last rendered result payload — feeds 复制打包方
 // flag "verify this — it's an AI estimate, not confirmed".
 const HARDCODED_AIRLINES = new Set(['CX','KE','JL','QR','EK','LH','AA','UA','NH','TK','BR','OZ','HX']);
 
+// One flyer realistically hauls ~100–150kg. When an airline publishes no
+// per-person total-weight cap, we fall back to this in packing AND surface it
+// (in pink) in the 每人最多限重 box so staff see it's our number, not the
+// airline's. Used by assignAndPrice() and renderResults().
+const DEFAULT_MAX_WEIGHT_PER_PAX = 150;
+
 // Single source of truth for the airline picker (searchable combobox) and the
 // multi-airline comparison rows.
 const AIRLINES = [
@@ -2696,6 +2702,7 @@ function qrBuildRules(cabin, origin, destination) {
   rules.standard_weight_kg = 32; // per-piece ceiling; excess is billed by total kg, not per-piece overweight
   rules.free_bags_per_pax = 2;   // informational; weight concept caps by kg, not piece count
   rules.max_bags_per_pax = 10;
+  rules.max_bags_official = false; // QR publishes no per-pax piece cap on weight routes → our conservative 10
   rules.piece_concept_available = false; // this route bills ONLY by weight
   rules.weight_concept_available = true;
   rules.weight_concept_allowance_kg = first ? 50 : (biz ? 40 : 30); // econ default 30 (fare-dependent 20/25/30/35), override via 机票含kg
@@ -2793,12 +2800,14 @@ function ekBuildRules(cabin, origin, destination) {
   rules.standard_weight_kg = 32;
   rules.free_bags_per_pax = 2;
   rules.max_bags_per_pax = 10;
+  rules.max_bags_official = false; // EK publishes no per-pax piece cap on weight routes → our conservative 10
   rules.piece_concept_available = false;
   rules.weight_concept_available = true;
   rules.weight_concept_allowance_kg = first ? 50 : (biz ? 40 : 30); // econ default 30, override via 机票含kg
   rules.weight_concept_excess_fee_usd_per_kg = rate;
   rules.weight_concept_text = rate ? `每公斤 USD ${rate}（${EK_REGION_CN[o]}→${EK_REGION_CN[d]}）` : '未查到';
   rules.max_total_weight_kg = rules.weight_concept_allowance_kg + 50; // free allowance + up to 50kg purchasable per pax
+  rules.max_weight_official = true; // EK's per-pax weight cap IS published (免费额度+50kg)
   rules.excess_bag_fee_usd = null;
   rules.excess_bag_fee_text = '按公斤计（见计重制）';
   rules.overweight_fee_usd = 0;
@@ -3234,6 +3243,7 @@ function tkBuildRules(cabin, origin, destination) {
   rules.standard_weight_kg = 32;
   rules.free_bags_per_pax = 2;
   rules.max_bags_per_pax = 10;
+  rules.max_bags_official = false; // TK publishes no per-pax piece cap on weight routes → our conservative 10
   rules.piece_concept_available = false;
   rules.weight_concept_available = true;
   rules.weight_concept_allowance_kg = first ? 50 : (biz ? 40 : 30); // econ default 30 (fare-dependent), override via 机票含kg
@@ -3299,7 +3309,7 @@ function brBuildRules(cabin, origin, destination) {
     piece_concept_available: true,
     standard_linear_cm: 158, linear_limit_cm: 292,
     standard_weight_kg: biz ? 32 : 23,
-    free_bags_per_pax: 2, max_bags_per_pax: 10,
+    free_bags_per_pax: 2, max_bags_per_pax: 10, max_bags_official: false, // BR publishes no per-pax piece cap → our conservative 10
   };
   const base = (za && zb) ? brFeeUSD(origin, destination, za, zb) : null;
   if (!base) {
@@ -3381,7 +3391,7 @@ function ozBuildRules(cabin, origin, destination) {
     piece_concept_available: true,
     standard_linear_cm: 158, linear_limit_cm: 292,
     standard_weight_kg: biz ? 32 : 23,
-    max_bags_per_pax: 10,
+    max_bags_per_pax: 10, max_bags_official: false, // OZ publishes no per-pax piece cap → our conservative 10
   };
   if (!cat || cat === 'domestic') {
     rules.free_bags_per_pax = biz ? 2 : 1;
@@ -3455,7 +3465,7 @@ function hxBuildRules(cabin, origin, destination) {
     piece_concept_available: true,
     standard_linear_cm: 158, linear_limit_cm: 203,
     standard_weight_kg: biz ? 32 : 23,
-    free_bags_per_pax: 2, max_bags_per_pax: 10,
+    free_bags_per_pax: 2, max_bags_per_pax: 10, max_bags_official: false, // HX publishes no per-pax piece cap → our conservative 10
   };
   const exc = (za && zb && HX_EXCESS[za]) ? HX_EXCESS[za][zb] : null;
   const ow = (za && zb && HX_OVERWEIGHT[za]) ? HX_OVERWEIGHT[za][zb] : null;
@@ -3794,7 +3804,7 @@ function assignAndPrice(pieces, rules, strategyLabel, totalBoxes) {
   // One courier realistically hauls 100–150kg; when the user leaves the
   // manual cap unset, default to 150 so nobody gets a 300kg load. A manual
   // value always wins.
-  const maxTotalWeightKg = rules.max_total_weight_kg > 0 ? rules.max_total_weight_kg : 150;
+  const maxTotalWeightKg = rules.max_total_weight_kg > 0 ? rules.max_total_weight_kg : DEFAULT_MAX_WEIGHT_PER_PAX;
   const hardKg     = rules.weight_limit_kg || Infinity;
   const hardLinear = rules.linear_limit_cm || Infinity;
 
@@ -4662,14 +4672,26 @@ function renderResults(r) {
     + group('group-ticket', renderGroup(ticketGroup))
     + group('group-fee', renderGroup(feeGroup));
 
-  // These two reflect whatever's actually in `rules` right now — 0 on the very
-  // first AI lookup (calculate() forces that), but after the user edits one and
-  // hits 重新计算, the real value they set is echoed back instead of reverting.
-  const pinkStyle = aiSourced ? ` style="${PINK}"` : '';
+  // These two reflect whatever's actually in `rules` right now. Per-field pink:
+  // AI-sourced airlines are pink across the board (every number is an estimate);
+  // hardcoded airlines flag ONLY the values the airline itself doesn't publish —
+  // the conservative piece cap (max_bags_official===false, e.g. our flat 10) and
+  // the per-pax weight cap when there's no official one (we fall back to
+  // DEFAULT_MAX_WEIGHT_PER_PAX). Officially-published caps (国泰免费+3、阿联酋
+  // 计重+50kg 等) stay the normal color. Flags survive 重新计算 via {...rules}.
+  const bagsPink       = aiSourced || rules.max_bags_official === false;
+  const weightOfficial = rules.max_weight_official && rules.max_total_weight_kg > 0;
+  const weightPink     = aiSourced || !weightOfficial;
+  const maxWeightShown = rules.max_total_weight_kg > 0 ? rules.max_total_weight_kg : DEFAULT_MAX_WEIGHT_PER_PAX;
+  const bagsStyle   = bagsPink   ? ` style="${PINK}"` : '';
+  const weightStyle = weightPink ? ` style="${PINK}"` : '';
+  const pinkLegend = aiSourced
+    ? '；<b style="color:#e5308a;">粉色 = AI 联网估算，非官网/写死，请务必核对</b>'
+    : ((bagsPink || weightPink) ? '；<b style="color:#e5308a;">粉色 = 官网未规定、我们自设的默认值，仅供参考</b>' : '');
   document.getElementById('rules-maxbags').innerHTML =
-    `<div class="section-hd" style="margin:14px 0 8px; width:100%;">人工调整<span style="font-size:11.5px; color:var(--text-3); font-weight:400; margin-left:10px;">以上数值可能与实际不符，可手动修改后重新计算${aiSourced ? '；<b style="color:#e5308a;">粉色 = AI 联网估算，非官网/写死，请务必核对</b>' : ''}</span></div>`
-    + `<div class="rule-block maxbags-block"><span class="lbl">每人最多可托运</span><input type="number" id="rule-maxbags" min="0" value="${rules.max_bags_per_pax ?? 0}"${pinkStyle}><span class="lbl">件</span></div>`
-    + `<div class="rule-block maxbags-block"><span class="lbl">每人最多限重</span><input type="number" id="rule-max-total-weight" min="0" value="${rules.max_total_weight_kg || ''}" placeholder="-"${pinkStyle}><span class="lbl">kg</span></div>`;
+    `<div class="section-hd" style="margin:14px 0 8px; width:100%;">人工调整<span style="font-size:11.5px; color:var(--text-3); font-weight:400; margin-left:10px;">以上数值可能与实际不符，可手动修改后重新计算${pinkLegend}</span></div>`
+    + `<div class="rule-block maxbags-block"><span class="lbl">每人最多可托运</span><input type="number" id="rule-maxbags" min="0" value="${rules.max_bags_per_pax ?? 0}"${bagsStyle}><span class="lbl">件</span></div>`
+    + `<div class="rule-block maxbags-block"><span class="lbl">每人最多限重</span><input type="number" id="rule-max-total-weight" min="0" value="${maxWeightShown}"${weightStyle}><span class="lbl">kg</span></div>`;
 
   // The airline note now lives in the 费用估算 card's right column (see below),
   // so keep this slot in the rules card empty.
