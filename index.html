@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>手提行李智能计算 | Hand-Carry Optimizer</title>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -140,6 +141,19 @@ body::before {
   background: rgba(29,78,216,.25);
   color: #93C5FD;
 }
+
+#gsi-slot { display: flex; align-items: center; }
+.gsi-user {
+  background: rgba(5,150,105,.22);
+  color: #6EE7B7;
+  cursor: pointer;
+  text-transform: none;
+  letter-spacing: 0.02em;
+  font-family: inherit;
+  font-size: 12px;
+}
+.gsi-user::before { content: '👤 '; }
+.gsi-user:hover { background: rgba(220,38,38,.25); color: #FCA5A5; }
 
 
 /* ── Layout ──────────────────────────────────────────────── */
@@ -1369,6 +1383,12 @@ body::before {
   <div class="hdr-actions">
     <span class="chip chip-airlines">23 Airlines</span>
     <span id="proxy-status" class="chip" style="background:rgba(255,255,255,.12);color:#9CA3AF;cursor:default" title="代理服务器状态">● 检测中…</span>
+    <!-- Google sign-in slot: a button when signed out, a name chip when in.
+         Stays hidden entirely unless GOOGLE_CLIENT_ID is configured. -->
+    <div id="gsi-slot" style="display:none;">
+      <div id="gsi-btn"></div>
+      <span id="gsi-user" class="chip gsi-user" style="display:none;" title="点击退出登录"></span>
+    </div>
   </div>
 </header>
 
@@ -1806,11 +1826,17 @@ function openFeedback() {
   document.getElementById('fb-form').style.display = '';
   document.getElementById('fb-done').style.display = 'none';
   document.getElementById('fb-err').style.display = 'none';
-  // No login exists, so we can't know who's using it automatically. Instead we
-  // remember whoever last identified themselves on THIS browser and prefill it.
+  // Prefill the contact: a signed-in Google user is auto-identified (read-only);
+  // otherwise fall back to whoever last identified themselves on this browser.
   const contactEl = document.getElementById('fb-contact');
-  if (!contactEl.value) {
-    try { contactEl.value = localStorage.getItem('fb-user') || ''; } catch (_) {}
+  if (gsiUserEmail) {
+    contactEl.value = gsiUserEmail.split('@')[0];
+    contactEl.readOnly = true;
+  } else {
+    contactEl.readOnly = false;
+    if (!contactEl.value) {
+      try { contactEl.value = localStorage.getItem('fb-user') || ''; } catch (_) {}
+    }
   }
   document.getElementById('fb-overlay').classList.add('open');
   setTimeout(() => document.getElementById('fb-text').focus(), 50);
@@ -1824,9 +1850,12 @@ async function submitFeedback() {
   const message = textEl.value.trim();
   errEl.style.display = 'none';
   if (!message) { errEl.textContent = '请先填写反馈内容'; errEl.style.display = ''; textEl.focus(); return; }
-  // Store/send only the username part; remember it on this browser for next time.
+  // Store/remember only the username part on this browser for next time.
   const contact = document.getElementById('fb-contact').value.trim().split('@')[0].trim();
-  if (contact) { try { localStorage.setItem('fb-user', contact); } catch (_) {} }
+  if (contact && !gsiUserEmail) { try { localStorage.setItem('fb-user', contact); } catch (_) {} }
+  // Send the full verified email when signed in (more useful for replies),
+  // otherwise the manually typed username.
+  const contactForSlack = gsiUserEmail || contact;
 
   // Light context to help triage: current airline + route, if filled in.
   let context = '';
@@ -1848,7 +1877,7 @@ async function submitFeedback() {
     const res = await fetch('/api/feedback', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message, contact, context }),
+      body: JSON.stringify({ message, contact: contactForSlack, context }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error?.message || `HTTP ${res.status}`);
@@ -5266,6 +5295,98 @@ async function checkProxy() {
   }
 }
 checkProxy();
+
+// ─── Google sign-in (optional — auto-identifies the user's email) ─────────
+// Active only when the deployment has GOOGLE_CLIENT_ID configured. Signed in →
+// feedback auto-fills the verified email; not configured / signed out → the
+// manual "remember on this browser" flow stays.
+let gsiUserEmail = null;   // full email, e.g. zhangsan@optec-exp.com
+let gsiUserName  = null;
+
+function gsiDecodeJwt(token) {
+  try {
+    const payload = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    return JSON.parse(decodeURIComponent(escape(atob(payload))));
+  } catch (_) { return null; }
+}
+
+function gsiApplyUser(email, name) {
+  gsiUserEmail = email || null;
+  gsiUserName = name || (email ? email.split('@')[0] : null);
+  const btn = document.getElementById('gsi-btn');
+  const chip = document.getElementById('gsi-user');
+  if (gsiUserEmail) {
+    try {
+      localStorage.setItem('gsi-email', gsiUserEmail);
+      if (gsiUserName) localStorage.setItem('gsi-name', gsiUserName);
+    } catch (_) {}
+    chip.textContent = gsiUserName;
+    chip.style.display = '';
+    btn.style.display = 'none';
+    // Reflect into an already-open feedback form.
+    const c = document.getElementById('fb-contact');
+    if (c) { c.value = gsiUserEmail.split('@')[0]; c.readOnly = true; }
+  } else {
+    chip.style.display = 'none';
+    btn.style.display = '';
+    const c = document.getElementById('fb-contact');
+    if (c) c.readOnly = false;
+  }
+}
+
+function gsiHandleCredential(resp) {
+  const info = gsiDecodeJwt(resp.credential);
+  if (info && info.email) gsiApplyUser(info.email, info.name);
+}
+
+function gsiSignOut() {
+  try {
+    localStorage.removeItem('gsi-email');
+    localStorage.removeItem('gsi-name');
+    if (window.google?.accounts?.id) google.accounts.id.disableAutoSelect();
+  } catch (_) {}
+  gsiApplyUser(null, null);
+  toast('已退出登录');
+}
+
+function gsiWhenReady(cb) {
+  if (window.google?.accounts?.id) return cb();
+  let n = 0;
+  const t = setInterval(() => {
+    if (window.google?.accounts?.id) { clearInterval(t); cb(); }
+    else if (++n > 50) clearInterval(t);  // ~5s then give up quietly
+  }, 100);
+}
+
+async function initGoogleAuth() {
+  let cfg;
+  try { cfg = await (await fetch('/api/config')).json(); } catch (_) { return; }
+  if (!cfg || !cfg.googleClientId) return;   // not configured → keep manual flow
+
+  document.getElementById('gsi-slot').style.display = 'flex';
+  document.getElementById('gsi-user').onclick = gsiSignOut;
+
+  // Show a remembered user instantly, before the SDK silently re-verifies.
+  try {
+    const savedEmail = localStorage.getItem('gsi-email');
+    if (savedEmail) gsiApplyUser(savedEmail, localStorage.getItem('gsi-name'));
+  } catch (_) {}
+
+  gsiWhenReady(() => {
+    google.accounts.id.initialize({
+      client_id: cfg.googleClientId,
+      callback: gsiHandleCredential,
+      auto_select: true,
+      hd: cfg.googleHd || undefined,
+    });
+    if (!gsiUserEmail) {
+      google.accounts.id.renderButton(document.getElementById('gsi-btn'),
+        { type: 'standard', theme: 'filled_blue', size: 'medium', text: 'signin', shape: 'pill' });
+      google.accounts.id.prompt();  // silent auto-select for returning users
+    }
+  });
+}
+initGoogleAuth();
 </script>
 </body>
 </html>
