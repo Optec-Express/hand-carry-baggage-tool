@@ -1240,6 +1240,97 @@ body::before {
   font-weight:600; font-size:13px; padding:9px 16px; border-radius:9px; cursor:pointer; margin-top:2px; }
 .add-airline:hover { border-color:var(--accent); background:var(--accent-l); }
 .add-airline:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+
+/* ── User feedback (floating tab + modal) ────────────────── */
+.fb-fab {
+  position: fixed;
+  right: 0;
+  top: 42%;
+  transform: translateY(-50%);
+  z-index: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  writing-mode: vertical-rl;
+  background: var(--grad-brand);
+  color: #fff;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  padding: 16px 9px;
+  border: none;
+  border-radius: 12px 0 0 12px;
+  cursor: pointer;
+  box-shadow: -4px 6px 18px -6px rgba(92,92,252,.55);
+  transition: padding .15s, box-shadow .15s;
+}
+.fb-fab:hover { padding-right: 13px; box-shadow: -6px 9px 24px -6px rgba(92,92,252,.7); }
+.fb-fab .fb-ico { writing-mode: horizontal-tb; font-size: 15px; }
+
+.fb-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(11,25,41,.5);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.fb-overlay.open { display: flex; }
+.fb-modal {
+  position: relative;
+  width: 100%;
+  max-width: 440px;
+  background: var(--surface);
+  border-radius: var(--r-lg);
+  box-shadow: var(--sh-lg);
+  padding: 26px 24px 20px;
+}
+.fb-modal::before {
+  content: '';
+  position: absolute; top: 0; left: 0; right: 0; height: 4px;
+  background: var(--grad-brand);
+  border-top-left-radius: var(--r-lg);
+  border-top-right-radius: var(--r-lg);
+}
+.fb-modal h3 { font-size: 16px; font-weight: 700; color: var(--text); margin-bottom: 4px; }
+.fb-modal .fb-desc { font-size: 12.5px; color: var(--text-3); margin-bottom: 14px; line-height: 1.6; }
+.fb-modal textarea {
+  width: 100%;
+  min-height: 118px;
+  resize: vertical;
+  border: 1.5px solid var(--border-strong);
+  border-radius: 10px;
+  padding: 11px 13px;
+  font-family: inherit;
+  font-size: 13.5px;
+  color: var(--text);
+  outline: none;
+  transition: border-color .15s, box-shadow .15s;
+}
+.fb-modal .fb-contact {
+  width: 100%;
+  margin-top: 10px;
+  border: 1.5px solid var(--border-strong);
+  border-radius: 10px;
+  padding: 9px 13px;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--text);
+  outline: none;
+  transition: border-color .15s, box-shadow .15s;
+}
+.fb-modal textarea:focus, .fb-modal .fb-contact:focus { border-color: var(--accent); box-shadow: var(--ring); }
+.fb-close {
+  position: absolute; top: 12px; right: 14px;
+  background: none; border: none; font-size: 19px; line-height: 1;
+  color: var(--text-3); cursor: pointer; padding: 2px 4px;
+}
+.fb-close:hover { color: var(--text); }
 </style>
 </head>
 <body>
@@ -1527,6 +1618,22 @@ body::before {
 
 <div class="toast" id="toast"></div>
 
+<!-- ── User feedback ──────────────────────────────────────── -->
+<button class="fb-fab" onclick="openFeedback()" title="意见反馈"><span class="fb-ico">💬</span>反馈</button>
+<div class="fb-overlay" id="fb-overlay" onclick="if(event.target===this)closeFeedback()">
+  <div class="fb-modal" role="dialog" aria-modal="true" aria-labelledby="fb-title">
+    <button class="fb-close" onclick="closeFeedback()" aria-label="关闭">✕</button>
+    <h3 id="fb-title">💬 意见反馈</h3>
+    <div class="fb-desc">用起来遇到问题或有建议？写下来，我们会收到并跟进。</div>
+    <textarea id="fb-text" placeholder="请描述你遇到的问题或想要的功能…"></textarea>
+    <input type="text" class="fb-contact" id="fb-contact" placeholder="联系方式（选填，方便回复你）">
+    <div class="modal-btns" style="margin-top:14px;">
+      <button class="btn-outline" onclick="closeFeedback()">取消</button>
+      <button class="btn-solid" id="fb-submit" onclick="submitFeedback()">提交反馈</button>
+    </div>
+  </div>
+</div>
+
 <script>
 // ─── State ────────────────────────────────────────────────
 let rows = [];
@@ -1657,6 +1764,60 @@ function toast(msg) {
   el.classList.add('show');
   setTimeout(() => el.classList.remove('show'), 2500);
 }
+
+// ─── User feedback → Slack ────────────────────────────────
+function openFeedback() {
+  document.getElementById('fb-overlay').classList.add('open');
+  setTimeout(() => document.getElementById('fb-text').focus(), 50);
+}
+function closeFeedback() {
+  document.getElementById('fb-overlay').classList.remove('open');
+}
+async function submitFeedback() {
+  const textEl = document.getElementById('fb-text');
+  const message = textEl.value.trim();
+  if (!message) { toast('请先填写反馈内容'); return; }
+  const contact = document.getElementById('fb-contact').value.trim();
+
+  // Light context to help triage: current airline + route, if filled in.
+  let context = '';
+  try {
+    const air = document.getElementById('airline-search')?.value?.trim()
+      || document.getElementById('sel-airline')?.value?.trim() || '';
+    const from = document.getElementById('inp-origin')?.value?.trim() || '';
+    const to = document.getElementById('inp-destination')?.value?.trim() || '';
+    const parts = [];
+    if (air) parts.push(`航司 ${air}`);
+    if (from || to) parts.push(`航线 ${from || '?'}→${to || '?'}`);
+    context = parts.join('　·　');
+  } catch (_) { /* context is best-effort */ }
+
+  const btn = document.getElementById('fb-submit');
+  btn.disabled = true;
+  btn.textContent = '提交中…';
+  try {
+    const res = await fetch('/api/feedback', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message, contact, context }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error?.message || `HTTP ${res.status}`);
+    toast('反馈已提交，感谢你的反馈！');
+    textEl.value = '';
+    document.getElementById('fb-contact').value = '';
+    closeFeedback();
+  } catch (e) {
+    toast('提交失败：' + (e.message || '网络错误'));
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '提交反馈';
+  }
+}
+// Esc closes the feedback modal.
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeFeedback();
+});
 
 // ─── JSON 提取（兼容多种 AI 返回格式）────────────────────
 function repairJSON(str) {
