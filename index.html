@@ -363,22 +363,21 @@ body {
 }
 .nostack-toggle input { width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer; margin: 0; }
 
-/* 清空按钮：低调的描边样式，只在悬停时透出淡红，不再整块实心红 */
+/* 清空按钮：实心橘色，醒目 */
 #reset-btn {
-  background: transparent;
-  color: var(--text-3);
-  border: 1px solid var(--border);
+  background: #F97316;
+  color: #fff;
+  border: 1px solid #F97316;
   border-radius: 7px;
   padding: 7px 16px;
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 600;
   cursor: pointer;
-  transition: color .15s, border-color .15s, background .15s;
+  transition: background .15s, border-color .15s;
 }
 #reset-btn:hover {
-  color: #DC2626;
-  border-color: #DC2626;
-  background: color-mix(in srgb, #DC2626 8%, transparent);
+  background: #EA580C;
+  border-color: #EA580C;
 }
 .nostack-toggle:has(input:checked) {
   border-color: var(--accent);
