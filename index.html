@@ -1331,6 +1331,29 @@ body::before {
   color: var(--text-3); cursor: pointer; padding: 2px 4px;
 }
 .fb-close:hover { color: var(--text); }
+.fb-err {
+  margin-top: 10px;
+  font-size: 12.5px;
+  color: #991B1B;
+  background: var(--err-bg);
+  border: 1px solid #FECACA;
+  border-radius: 8px;
+  padding: 8px 11px;
+}
+/* Success panel shown in place of the form after submitting. */
+.fb-done { text-align: center; padding: 20px 6px 8px; }
+.fb-check {
+  width: 56px; height: 56px; margin: 0 auto 14px;
+  border-radius: 50%;
+  background: var(--ok-bg);
+  color: var(--ok);
+  font-size: 30px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+  animation: fb-pop .35s cubic-bezier(.2,.9,.3,1.4);
+}
+@keyframes fb-pop { from { transform: scale(0); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+.fb-done-title { font-size: 18px; font-weight: 700; color: var(--text); margin-bottom: 5px; }
+.fb-done-sub { font-size: 13px; color: var(--text-3); line-height: 1.6; }
 </style>
 </head>
 <body>
@@ -1623,13 +1646,21 @@ body::before {
 <div class="fb-overlay" id="fb-overlay" onclick="if(event.target===this)closeFeedback()">
   <div class="fb-modal" role="dialog" aria-modal="true" aria-labelledby="fb-title">
     <button class="fb-close" onclick="closeFeedback()" aria-label="关闭">✕</button>
-    <h3 id="fb-title">💬 意见反馈</h3>
-    <div class="fb-desc">用起来遇到问题或有建议？写下来，我们会收到并跟进。</div>
-    <textarea id="fb-text" placeholder="请描述你遇到的问题或想要的功能…"></textarea>
-    <input type="text" class="fb-contact" id="fb-contact" placeholder="联系方式（选填，方便回复你）">
-    <div class="modal-btns" style="margin-top:14px;">
-      <button class="btn-outline" onclick="closeFeedback()">取消</button>
-      <button class="btn-solid" id="fb-submit" onclick="submitFeedback()">提交反馈</button>
+    <div id="fb-form">
+      <h3 id="fb-title">💬 意见反馈</h3>
+      <div class="fb-desc">用起来遇到问题或有建议？写下来，我们会收到并跟进。</div>
+      <textarea id="fb-text" placeholder="请描述你遇到的问题或想要的功能…"></textarea>
+      <input type="text" class="fb-contact" id="fb-contact" value="group-dx@optec-exp.com" placeholder="联系方式（选填，方便回复你）">
+      <div class="fb-err" id="fb-err" style="display:none;"></div>
+      <div class="modal-btns" style="margin-top:14px;">
+        <button class="btn-outline" onclick="closeFeedback()">取消</button>
+        <button class="btn-solid" id="fb-submit" onclick="submitFeedback()">提交反馈</button>
+      </div>
+    </div>
+    <div class="fb-done" id="fb-done" style="display:none;">
+      <div class="fb-check">✓</div>
+      <div class="fb-done-title">反馈已提交</div>
+      <div class="fb-done-sub">感谢你的反馈，我们会尽快跟进！</div>
     </div>
   </div>
 </div>
@@ -1767,6 +1798,10 @@ function toast(msg) {
 
 // ─── User feedback → Slack ────────────────────────────────
 function openFeedback() {
+  // Reset to the form view every time it opens.
+  document.getElementById('fb-form').style.display = '';
+  document.getElementById('fb-done').style.display = 'none';
+  document.getElementById('fb-err').style.display = 'none';
   document.getElementById('fb-overlay').classList.add('open');
   setTimeout(() => document.getElementById('fb-text').focus(), 50);
 }
@@ -1775,8 +1810,10 @@ function closeFeedback() {
 }
 async function submitFeedback() {
   const textEl = document.getElementById('fb-text');
+  const errEl = document.getElementById('fb-err');
   const message = textEl.value.trim();
-  if (!message) { toast('请先填写反馈内容'); return; }
+  errEl.style.display = 'none';
+  if (!message) { errEl.textContent = '请先填写反馈内容'; errEl.style.display = ''; textEl.focus(); return; }
   const contact = document.getElementById('fb-contact').value.trim();
 
   // Light context to help triage: current airline + route, if filled in.
@@ -1803,12 +1840,15 @@ async function submitFeedback() {
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error?.message || `HTTP ${res.status}`);
-    toast('反馈已提交，感谢你的反馈！');
+    // Clear only the message; keep the contact default for next time.
     textEl.value = '';
-    document.getElementById('fb-contact').value = '';
-    closeFeedback();
+    // Show the big in-modal success panel, then auto-close.
+    document.getElementById('fb-form').style.display = 'none';
+    document.getElementById('fb-done').style.display = '';
+    setTimeout(closeFeedback, 1800);
   } catch (e) {
-    toast('提交失败：' + (e.message || '网络错误'));
+    errEl.textContent = '提交失败：' + (e.message || '网络错误');
+    errEl.style.display = '';
   } finally {
     btn.disabled = false;
     btn.textContent = '提交反馈';
