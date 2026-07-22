@@ -4854,6 +4854,14 @@ function renderResults(r) {
       ? { l: '推荐计费方式（两种均可，取便宜）', v: cost.recommended_concept }
       : { l: '计费方式', v: `${cost.recommended_concept}（更合适）` });
   }
+  // Break the total into its fee components so the line items add up to 预计总费用.
+  // The recommended concept's core charge is either excess pieces (计件制) or
+  // excess kg (计重制); label it accordingly. Overweight/oversize are surcharges
+  // on top of either concept.
+  if (cost.excess_cost_usd > 0) {
+    const isWeight = cost.recommended_concept === (cost.weight_concept && cost.weight_concept.label);
+    costRows.push({ l: isWeight ? '计重超额费' : '超件费', v: `USD ${cost.excess_cost_usd.toLocaleString()}` });
+  }
   if (cost.overweight_cost_usd > 0) costRows.push({ l: '超重费', v: `USD ${cost.overweight_cost_usd.toLocaleString()}` });
   if (cost.oversize_cost_usd > 0) costRows.push({ l: '超尺寸费', v: `USD ${cost.oversize_cost_usd.toLocaleString()}` });
 
