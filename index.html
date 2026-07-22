@@ -362,6 +362,24 @@ body {
   white-space: nowrap;
 }
 .nostack-toggle input { width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer; margin: 0; }
+
+/* 清空按钮：低调的描边样式，只在悬停时透出淡红，不再整块实心红 */
+#reset-btn {
+  background: transparent;
+  color: var(--text-3);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 7px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: color .15s, border-color .15s, background .15s;
+}
+#reset-btn:hover {
+  color: #DC2626;
+  border-color: #DC2626;
+  background: color-mix(in srgb, #DC2626 8%, transparent);
+}
 .nostack-toggle:has(input:checked) {
   border-color: var(--accent);
   color: var(--accent);
@@ -1185,7 +1203,6 @@ body {
         <button type="button" id="mode-multi" role="tab" aria-selected="false" onclick="setQuoteMode('multi')">多航司</button>
       </div>
       <button id="reset-btn" onclick="resetAll()"
-              style="background:#DC2626; color:#fff; border:none; border-radius:7px; padding:7px 18px; font-size:13px; font-weight:600; cursor:pointer;"
               title="清空所有输入，开始计算新航线">🔄 清空</button>
     </div>
     <div class="settings-grid">
@@ -2144,6 +2161,17 @@ Reply with ONLY this JSON, no explanation, no markdown, no extra text:
     if (!text) throw new Error('AI 返回空响应，请重试');
     const result = extractJSON(text);
     ocrPendingItems = (result.items || []).filter(it => it !== null);
+    // The AI returns kg as the ROW/GROUP total for all q pieces (see prompt),
+    // but every downstream consumer — the 合计 box, cargo summary, and packing —
+    // treats a row's kg as PER-PIECE. Average the group total across its pieces
+    // here so those don't re-multiply by q and inflate the weight
+    // (e.g. 400kg for 20pc → 20kg/piece, not 400×20 = 8000).
+    ocrPendingItems.forEach(it => {
+      const q = Math.max(1, parseInt(it.q) || 1);
+      if (typeof it.kg === 'number' && it.kg > 0 && q > 1) {
+        it.kg = +(it.kg / q).toFixed(2);
+      }
+    });
     ocrTotalWeightKg = (typeof result.totalWeightKg === 'number' && result.totalWeightKg > 0)
       ? result.totalWeightKg : null;
     renderOcrResult(ocrPendingItems, result.notes, result.confidence);
