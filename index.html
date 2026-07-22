@@ -2113,14 +2113,14 @@ async function recognizeImage() {
 For each item extract:
 - desc: product name or description
 - l, w, h: dimensions in cm (convert inches ×2.54, mm ÷10, pounds ÷2.205, grams ÷1000)
-- kg: the TOTAL weight of ALL q pieces in that row (group total), in kg — exactly as printed in the source's weight column, do NOT divide by piece count. Freight packing lists almost always list the row/group total here (e.g. a row of 7 boxes showing "161" means 161kg for all 7). If the source instead shows a per-unit weight, multiply by q so kg becomes the group total. This column is always the combined weight of that row's pieces.
+- kg: the PER-PIECE weight of ONE box in that row, in kg. Decide for yourself whether the source's weight column is a per-unit weight or a row/group total, and return the per-piece figure. Freight packing lists often print the row total (e.g. a row of 7 boxes showing "161", or "Gross Weight 400kg" for a 20pc shipment) — when it's clearly a total for q pieces, divide by q so kg is one box's weight (161/7≈23, 400/20=20). When the column is genuinely per-unit, use it as-is. Use judgment from the layout/labels; don't apply a blind rule.
 - q: quantity (default 1 if not shown)
 
 Use null for any field not found in the image. If no dimensions found at all, return empty items array.
 
 Only put a number in a row's kg field if the image actually shows a weight for that specific row/group. Do NOT invent, estimate, or split an aggregate total across rows — that fabricates data. If the image only shows ONE shipment-level total gross weight (总毛重 / Gross Weight / Total Weight) and does NOT break weight down per row, leave kg null on every item and report that number once as top-level totalWeightKg. If per-row weights ARE given, set totalWeightKg to null.
 
-The shipment total = the direct sum of the kg column (or totalWeightKg if the rows carry no weight). Sanity-check before returning: Σ(kg) should equal the grand-total weight printed in the image (if any).
+The app computes the shipment total as Σ(kg × q) (or totalWeightKg if the rows carry no weight). Sanity-check before returning: Σ(kg × q) should equal the grand-total weight printed in the image (if any) — if it comes out much larger, you left a row total in a kg field instead of dividing to per-piece.
 
 The "notes" field MUST be written in concise Simplified Chinese for a non-technical user — only mention things that affect the numbers (unit conversion, unusual/unclear values, blurry image). Do NOT include field names, code, or reasoning jargon. Empty string if nothing noteworthy.
 
@@ -2161,17 +2161,6 @@ Reply with ONLY this JSON, no explanation, no markdown, no extra text:
     if (!text) throw new Error('AI 返回空响应，请重试');
     const result = extractJSON(text);
     ocrPendingItems = (result.items || []).filter(it => it !== null);
-    // The AI returns kg as the ROW/GROUP total for all q pieces (see prompt),
-    // but every downstream consumer — the 合计 box, cargo summary, and packing —
-    // treats a row's kg as PER-PIECE. Average the group total across its pieces
-    // here so those don't re-multiply by q and inflate the weight
-    // (e.g. 400kg for 20pc → 20kg/piece, not 400×20 = 8000).
-    ocrPendingItems.forEach(it => {
-      const q = Math.max(1, parseInt(it.q) || 1);
-      if (typeof it.kg === 'number' && it.kg > 0 && q > 1) {
-        it.kg = +(it.kg / q).toFixed(2);
-      }
-    });
     ocrTotalWeightKg = (typeof result.totalWeightKg === 'number' && result.totalWeightKg > 0)
       ? result.totalWeightKg : null;
     renderOcrResult(ocrPendingItems, result.notes, result.confidence);
