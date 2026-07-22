@@ -34,6 +34,18 @@
   --sh-md: 0 6px 20px -8px rgba(14,23,38,.14), 0 2px 5px -2px rgba(14,23,38,.06);
   --sh-lg: 0 18px 44px -14px rgba(14,23,38,.22);
   --ring: 0 0 0 3px var(--accent-l);
+  /* Lively accent palette — used decoratively (bars, gradients, headings)
+     while the functional blue --accent stays for focus/interactive states. */
+  --violet:  #7C5CFC;
+  --indigo:  #5B6EF5;
+  --cyan:    #06B6D4;
+  --teal:    #14B8A6;
+  --pink:    #EC4899;
+  --amber:   #F59E0B;
+  /* Signature multi-hue gradient reused across header, bars and buttons. */
+  --grad-brand: linear-gradient(120deg, #2C5FEA 0%, #5B6EF5 42%, #7C5CFC 72%, #22B8CF 100%);
+  --grad-accent: linear-gradient(90deg, #2C5FEA, #7C5CFC 55%, #22B8CF);
+  --grad-warm: linear-gradient(90deg, #F59E0B, #EC4899);
 }
 
 body {
@@ -54,11 +66,25 @@ body {
   min-height: 100vh;
 }
 
+/* Soft coloured glows layered over the aviation art for a livelier canvas.
+   z-index:-1 keeps them above the page background but behind all content. */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(900px 520px at 8% -8%, rgba(124,92,252,.16), transparent 60%),
+    radial-gradient(840px 480px at 110% 4%, rgba(6,182,212,.15), transparent 55%),
+    radial-gradient(760px 540px at 50% 120%, rgba(236,72,153,.11), transparent 60%);
+}
+
 /* ── Header ─────────────────────────────────────────────── */
 .hdr {
-  background: linear-gradient(180deg, #102338 0%, #0B1929 100%);
+  background: linear-gradient(115deg, #0B1929 0%, #16294A 46%, #1E2A6B 78%, #201B52 100%);
   border-bottom: 1px solid rgba(255,255,255,.06);
-  box-shadow: 0 2px 0 rgba(29,78,216,.55), 0 6px 20px -10px rgba(11,25,41,.6);
+  box-shadow: 0 6px 20px -10px rgba(11,25,41,.6);
   padding: 0 28px;
   display: flex;
   align-items: center;
@@ -67,6 +93,14 @@ body {
   position: sticky;
   top: 0;
   z-index: 100;
+}
+/* Vivid multi-hue accent line under the header. */
+.hdr::after {
+  content: '';
+  position: absolute;
+  left: 0; right: 0; bottom: -3px;
+  height: 3px;
+  background: var(--grad-brand);
 }
 
 .hdr-brand {
@@ -117,6 +151,7 @@ body {
 
 /* ── Cards ───────────────────────────────────────────────── */
 .card {
+  position: relative;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--r-lg);
@@ -124,14 +159,37 @@ body {
   margin-bottom: 18px;
   box-shadow: var(--sh-md);
 }
+/* Slim gradient accent along the top edge — colour without touching layout. */
+.card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 4px;
+  background: var(--grad-brand);
+  border-top-left-radius: var(--r-lg);
+  border-top-right-radius: var(--r-lg);
+  opacity: .9;
+}
 
 .card-title {
+  display: flex;
+  align-items: center;
+  gap: 9px;
   font-size: 12.5px;
   font-weight: 700;
   letter-spacing: 0.09em;
   text-transform: uppercase;
   color: var(--text-2);
   margin-bottom: 18px;
+}
+/* Colourful pill marker before each section title. */
+.card-title::before {
+  content: '';
+  width: 4px;
+  height: 15px;
+  border-radius: 3px;
+  background: var(--grad-accent);
+  flex: none;
 }
 
 /* ── Settings strip ──────────────────────────────────────── */
@@ -217,9 +275,9 @@ body {
 .tab:hover:not(.active) { color: var(--text); }
 
 .tab.active {
-  background: var(--surface);
-  color: var(--accent);
-  box-shadow: 0 1px 3px rgba(14,23,38,.14);
+  background: var(--grad-accent);
+  color: #fff;
+  box-shadow: 0 3px 8px -2px rgba(92,92,252,.45);
 }
 
 /* ── Cargo table ─────────────────────────────────────────── */
@@ -493,7 +551,8 @@ body {
 .calc-btn {
   width: 100%;
   padding: 16px;
-  background: linear-gradient(180deg, #2C5FEA 0%, #1D4ED8 100%);
+  background: var(--grad-brand);
+  background-size: 160% 160%;
   color: #fff;
   border: none;
   border-radius: var(--r);
@@ -502,13 +561,14 @@ body {
   cursor: pointer;
   font-family: inherit;
   letter-spacing: 0.02em;
-  transition: filter .15s, transform .1s, box-shadow .15s;
-  box-shadow: 0 8px 20px -6px rgba(29,78,216,.5), inset 0 1px 0 rgba(255,255,255,.18);
+  transition: filter .15s, transform .1s, box-shadow .15s, background-position .4s;
+  box-shadow: 0 10px 24px -6px rgba(92,92,252,.5), inset 0 1px 0 rgba(255,255,255,.22);
 }
 
 .calc-btn:hover:not(:disabled) {
   filter: brightness(1.06);
-  box-shadow: 0 12px 26px -6px rgba(29,78,216,.6), inset 0 1px 0 rgba(255,255,255,.22);
+  background-position: 100% 50%;
+  box-shadow: 0 14px 30px -6px rgba(92,92,252,.6), inset 0 1px 0 rgba(255,255,255,.26);
   transform: translateY(-1px);
 }
 
@@ -841,7 +901,14 @@ body {
 .cost-row .cv { font-family: var(--mono); font-weight: 600; color: var(--text); }
 .cost-row.total { border-top: 2px solid var(--border); padding-top: 12px; margin-top: 4px; }
 .cost-row.total .cl { font-weight: 700; color: var(--text); font-size: 14.5px; }
-.cost-row.total .cv { font-size: 18px; color: var(--accent); }
+.cost-row.total .cv {
+  font-size: 18px;
+  font-weight: 800;
+  background: var(--grad-accent);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
 
 .cost-body {
   display: grid;
@@ -1111,8 +1178,8 @@ body {
 .mode-seg button { border:0; background:transparent; color:var(--text-2); font:inherit;
   font-weight:600; font-size:12.5px; padding:6px 14px; border-radius:7px; cursor:pointer;
   transition:.15s; white-space:nowrap; }
-.mode-seg button.on { background:var(--surface); color:var(--accent);
-  box-shadow:0 1px 2px rgba(15,23,42,.14); }
+.mode-seg button.on { background:var(--grad-accent); color:#fff;
+  box-shadow:0 3px 8px -2px rgba(92,92,252,.45); }
 .mode-seg button:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
 
 .field.hl label { color:var(--accent); }
@@ -1142,7 +1209,8 @@ body {
 .mtotal { display:flex; align-items:baseline; justify-content:space-between; margin-top:6px;
   padding-top:14px; border-top:2px solid var(--border); }
 .mtotal .lab { font-weight:700; font-size:14px; }
-.mtotal .big b { font-size:22px; color:var(--accent); font-variant-numeric:tabular-nums; }
+.mtotal .big b { font-size:22px; font-weight:800; font-variant-numeric:tabular-nums;
+  background:var(--grad-accent); -webkit-background-clip:text; background-clip:text; color:transparent; }
 .mtotal .big .u { font-size:13px; color:var(--text-2); margin-left:10px; }
 .leftover { margin-top:16px; background:var(--warn-bg); border:1px solid var(--warn);
   border-radius:12px; padding:14px 16px; display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
