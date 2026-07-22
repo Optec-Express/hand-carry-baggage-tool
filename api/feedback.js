@@ -34,10 +34,10 @@ export default async function handler(req, res) {
 
   // Block Kit message: a header, then a clearly-labelled 提出人 / 内容 body.
   const submitter = contact || '未填写';
-  const body = [`*提出人：*　${submitter}`, `*内容：*　${message}`].join('\n');
+  const bodyText = [`*提出人：*　${submitter}`, `*内容：*　${message}`].join('\n');
   const blocks = [
     { type: 'header', text: { type: 'plain_text', text: '📣 手提行李工具 · 用户反馈', emoji: true } },
-    { type: 'section', text: { type: 'mrkdwn', text: body } },
+    { type: 'section', text: { type: 'mrkdwn', text: bodyText } },
   ];
   // `text` is the notification fallback; blocks render the rich message.
   const payload = { text: `用户反馈（${submitter}）：${message.slice(0, 120)}`, blocks };
