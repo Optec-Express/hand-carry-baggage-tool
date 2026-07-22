@@ -32,19 +32,19 @@ export default async function handler(req, res) {
   const contact = (body.contact || '').toString().trim().slice(0, 200);
   const context = (body.context || '').toString().trim().slice(0, 400);
 
-  // Block Kit message: a header, the feedback body, then a light context line.
-  const ctxParts = [];
-  if (contact) ctxParts.push(`联系方式：${contact}`);
-  if (context) ctxParts.push(context);
+  // Block Kit message: a header, then a clearly-labelled 提出人 / 内容 body,
+  // with the airline/route as a small context footer.
+  const submitter = contact || '未填写';
+  const body = [`*提出人：*　${submitter}`, `*内容：*　${message}`].join('\n');
   const blocks = [
     { type: 'header', text: { type: 'plain_text', text: '📣 手提行李工具 · 用户反馈', emoji: true } },
-    { type: 'section', text: { type: 'mrkdwn', text: message } },
+    { type: 'section', text: { type: 'mrkdwn', text: body } },
   ];
-  if (ctxParts.length) {
-    blocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text: ctxParts.join('　·　') }] });
+  if (context) {
+    blocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text: context }] });
   }
   // `text` is the notification fallback; blocks render the rich message.
-  const payload = { text: `用户反馈：${message.slice(0, 120)}`, blocks };
+  const payload = { text: `用户反馈（${submitter}）：${message.slice(0, 120)}`, blocks };
 
   try {
     const r = await fetch(webhook, {
