@@ -1909,6 +1909,10 @@ Reply with ONLY this JSON, no explanation, no markdown:
 // ─── OCR ──────────────────────────────────────────────────
 let ocrImageData = null;
 let ocrPendingItems = [];
+// Shipment-level total gross weight the AI read off the image when no per-row
+// weights are broken out (e.g. only "总毛重 73kg" for all 12 boxes). Used to
+// prefill the 合计 重量 box so the number isn't lost.
+let ocrTotalWeightKg = null;
 
 function handleFileInput(inp) {
   if (inp.files[0]) handleImageFile(inp.files[0]);
@@ -1954,6 +1958,7 @@ async function handleImageFile(file) {
 function clearOcr() {
   ocrImageData = null;
   ocrPendingItems = [];
+  ocrTotalWeightKg = null;
   ocrSummaryEdited = { q: false, kg: false };
   document.getElementById('ocr-preview-wrap').style.display = 'none';
   document.getElementById('drop-zone').style.display = '';
@@ -2037,12 +2042,14 @@ For each item extract:
 
 Use null for any field not found in the image. If no dimensions found at all, return empty items array.
 
-The shipment total = the direct sum of the kg column. Sanity-check before returning: Σ(kg) should equal the grand-total weight printed in the image (if any).
+Only put a number in a row's kg field if the image actually shows a weight for that specific row/group. Do NOT invent, estimate, or split an aggregate total across rows — that fabricates data. If the image only shows ONE shipment-level total gross weight (总毛重 / Gross Weight / Total Weight) and does NOT break weight down per row, leave kg null on every item and report that number once as top-level totalWeightKg. If per-row weights ARE given, set totalWeightKg to null.
+
+The shipment total = the direct sum of the kg column (or totalWeightKg if the rows carry no weight). Sanity-check before returning: Σ(kg) should equal the grand-total weight printed in the image (if any).
 
 The "notes" field MUST be written in concise Simplified Chinese for a non-technical user — only mention things that affect the numbers (unit conversion, unusual/unclear values, blurry image). Do NOT include field names, code, or reasoning jargon. Empty string if nothing noteworthy.
 
 Reply with ONLY this JSON, no explanation, no markdown, no extra text:
-{"items":[{"desc":"name","l":60,"w":40,"h":35,"kg":8.5,"q":1}],"confidence":"high","notes":"尺寸按毫米÷10换算为厘米；重量列为整行总重，已÷件数换成单件重量"}`;
+{"items":[{"desc":"name","l":60,"w":40,"h":35,"kg":8.5,"q":1}],"totalWeightKg":null,"confidence":"high","notes":"尺寸按毫米÷10换算为厘米；重量列为整行总重，已÷件数换成单件重量"}`;
 
   try {
     const res = await fetch('/api/proxy', {
@@ -2078,6 +2085,8 @@ Reply with ONLY this JSON, no explanation, no markdown, no extra text:
     if (!text) throw new Error('AI 返回空响应，请重试');
     const result = extractJSON(text);
     ocrPendingItems = (result.items || []).filter(it => it !== null);
+    ocrTotalWeightKg = (typeof result.totalWeightKg === 'number' && result.totalWeightKg > 0)
+      ? result.totalWeightKg : null;
     renderOcrResult(ocrPendingItems, result.notes, result.confidence);
     btn.textContent = '重新识别';
 
@@ -2133,8 +2142,14 @@ function updateOcrSummary() {
   const qEl = document.getElementById('ocr-sum-q');
   const kgEl = document.getElementById('ocr-sum-kg');
   if (qEl && !ocrSummaryEdited.q) qEl.value = qty || '';
-  // Only auto-fill weight when every row had one; otherwise leave it blank/manual.
-  if (kgEl && !ocrSummaryEdited.kg) kgEl.value = (kg > 0 && !missingWeight) ? kg.toFixed(2) : '';
+  // Auto-fill weight from the row sums when every row had one; if the rows carry
+  // no weight but the AI read a shipment-level total off the image, use that so
+  // the number isn't lost. Otherwise leave it blank/manual.
+  if (kgEl && !ocrSummaryEdited.kg) {
+    if (kg > 0 && !missingWeight) kgEl.value = kg.toFixed(2);
+    else if (ocrTotalWeightKg != null) kgEl.value = ocrTotalWeightKg;
+    else kgEl.value = '';
+  }
 }
 
 function ocrRowHTML(i, it = {}) {
