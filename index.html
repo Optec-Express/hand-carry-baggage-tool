@@ -1671,9 +1671,11 @@ let importedTotalWeightKg = null;
 // Multi-airline mode: 'single' = normal one-airline quote; 'multi' = airline
 // list, cargo waterfalls through each carrier's ticket allotment in order.
 let quoteMode = 'single';
-// Single and multi modes keep independent cargo lists; on a mode switch the
-// leaving mode's rows are stashed here and the entering mode's are restored.
+// Single and multi modes keep independent cargo lists AND route (始发港/目的港);
+// on a mode switch the leaving mode's state is stashed here and the entering
+// mode's is restored.
 let cargoStash = { single: null, multi: null };
+let routeStash = { single: { o: '', d: '' }, multi: { o: '', d: '' } };
 let airlineRows = [];     // ids of the airline rows in the multi-airline list
 let nextAirlineId = 1;
 let lastMultiLegs = [];   // last multi-airline result, per leg (for click-to-detail)
@@ -2371,9 +2373,10 @@ function clearOcr() {
 // cached airline rules in localStorage (so a re-lookup stays free) — this
 // only wipes the on-screen inputs, not the paid cache.
 function resetAll() {
-  // both modes' cargo lists are wiped (clear the stash before the mode switch
-  // below, so it can't restore stale rows)
+  // both modes' cargo lists + routes are wiped (clear the stashes before the
+  // mode switch below, so it can't restore stale rows/route)
   cargoStash = { single: null, multi: null };
+  routeStash = { single: { o: '', d: '' }, multi: { o: '', d: '' } };
   // cargo table → single empty row
   document.getElementById('tbl-body').innerHTML = '';
   rows = [];
@@ -4506,11 +4509,17 @@ function assignAndPrice(pieces, rules, strategyLabel, totalBoxes) {
 function setQuoteMode(mode) {
   const prevMode = quoteMode;
   quoteMode = mode;
-  // Single / multi keep separate cargo lists: stash the leaving mode's rows and
-  // load the entering mode's own rows so neither shows the other's cargo.
+  // Single / multi keep separate cargo lists AND route: stash the leaving mode's
+  // rows + 始发港/目的港 and load the entering mode's own, so neither shows the
+  // other's data.
   if (prevMode !== mode) {
+    const oEl = document.getElementById('inp-origin');
+    const dEl = document.getElementById('inp-destination');
     cargoStash[prevMode] = serializeCargo();
+    routeStash[prevMode] = { o: oEl.value, d: dEl.value };
     restoreCargo(cargoStash[mode]);
+    oEl.value = routeStash[mode].o;
+    dEl.value = routeStash[mode].d;
   }
   const single = mode === 'single';
   document.getElementById('mode-single').classList.toggle('on', single);
