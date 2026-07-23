@@ -1212,6 +1212,12 @@ body::before {
 .airline-row .ar-tickets input { height:40px; border:1px solid var(--border); background:var(--surface);
   color:var(--text); border-radius:8px; padding:0 10px; font:inherit; font-size:13.5px; box-sizing:border-box; }
 .airline-row .ar-sel { flex:2 1 200px; min-width:0; }           /* airline: widest */
+/* Airline picker: searchable combo (same UX as single-airline mode). */
+.airline-row .ar-combo { position:relative; flex:2 1 200px; min-width:0; }
+.airline-row .ar-combo .combo-input { width:100%; height:40px; border:1px solid var(--border);
+  background:var(--surface) url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'><path fill='none' stroke='%23566178' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round' d='M1 1.5l5 5 5-5'/></svg>") no-repeat right 12px center;
+  background-size:12px 8px; color:var(--text); border-radius:8px; padding:0 32px 0 10px; font:inherit; font-size:13.5px; box-sizing:border-box; }
+.airline-row .ar-combo .combo-input:focus { outline:none; border-color:var(--accent); }
 .airline-row .ar-cab { flex:1 1 140px; min-width:0; }           /* cabin: medium */
 .airline-row .ar-mini { display:flex; align-items:center; gap:5px; flex:0 0 auto;
   font-size:12px; color:var(--text-2); font-weight:600; }
@@ -1705,12 +1711,10 @@ const AIRLINES = [
   {c:'UO',n:'香港快运'},{c:'MM',n:'乐桃航空'},{c:'5J',n:'宿务太平洋'},
 ];
 const airlineNameOf = code => (AIRLINES.find(a => a.c === code) || {}).n || code;
-const airlineOptionsHTML = () => AIRLINES.map(a => `<option value="${a.c}">${a.c} · ${a.n}</option>`).join('');
 
-function initAirlineCombo() {
-  const search = document.getElementById('airline-search');
-  const hidden = document.getElementById('sel-airline');
-  const list = document.getElementById('airline-list');
+// Reusable searchable airline picker. Wires a text input + hidden value + a
+// dropdown list; used by single-airline mode AND every multi-airline row.
+function initAirlineComboOn(search, hidden, list) {
   if (!search || !hidden || !list) return;
   const pick = code => { const a = AIRLINES.find(x => x.c === code); if (!a) return; hidden.value = a.c; search.value = `${a.c} · ${a.n}`; };
   const render = raw => {
@@ -1732,6 +1736,14 @@ function initAirlineCombo() {
     pick(a ? a.c : (hidden.value || 'CX'));
   }, 150));
   pick(hidden.value || 'CX');
+}
+
+function initAirlineCombo() {
+  initAirlineComboOn(
+    document.getElementById('airline-search'),
+    document.getElementById('sel-airline'),
+    document.getElementById('airline-list'),
+  );
 }
 
 const BAGGAGE_LINKS = {
@@ -4489,13 +4501,22 @@ function addAirlineRow() {
   div.id = 'ar' + id;
   div.innerHTML =
     `<span class="ar-idx"></span>` +
-    `<select id="ar-air-${id}" class="ar-sel">${airlineOptionsHTML()}</select>` +
+    `<div class="ar-combo" id="ar-combo-${id}">` +
+      `<input type="text" class="combo-input" id="ar-air-search-${id}" autocomplete="off" spellcheck="false" placeholder="敲代码或名称，如 QR，或点开选">` +
+      `<input type="hidden" id="ar-air-${id}" value="CX">` +
+      `<div class="combo-list" id="ar-air-list-${id}"></div>` +
+    `</div>` +
     `<select id="ar-cab-${id}" class="ar-sel ar-cab">${document.getElementById('sel-class').innerHTML}</select>` +
     `<label class="ar-mini">免费<select id="ar-free-${id}">${document.getElementById('sel-free-bags').innerHTML}</select></label>` +
     `<label class="ar-mini">含kg<select id="ar-wt-${id}">${document.getElementById('sel-bag-weight').innerHTML}</select></label>` +
     `<div class="ar-tickets"><input type="number" id="ar-tk-${id}" min="1" step="1" placeholder="机票数"><span>张</span></div>` +
     `<button type="button" class="del-btn" title="删除本航司" onclick="delAirlineRow(${id})">✕</button>`;
   document.getElementById('multi-airline-list').appendChild(div);
+  initAirlineComboOn(
+    document.getElementById('ar-air-search-' + id),
+    document.getElementById('ar-air-' + id),
+    document.getElementById('ar-air-list-' + id),
+  );
   renumberAirlineRows();
 }
 function delAirlineRow(id) {
@@ -4512,9 +4533,8 @@ function renumberAirlineRows() {
 }
 function collectAirlineRows() {
   return airlineRows.map(id => {
-    const sel = document.getElementById('ar-air-' + id);
-    const code = sel.value;
-    const name = sel.selectedOptions[0].text.split('·')[1]?.trim().split('—')[0].trim() || code;
+    const code = document.getElementById('ar-air-' + id).value;
+    const name = airlineNameOf(code);
     const cabin = document.getElementById('ar-cab-' + id).value;
     const tickets = parseInt(document.getElementById('ar-tk-' + id).value) || 0;
     const allowance = {
