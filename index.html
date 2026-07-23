@@ -893,6 +893,11 @@ body::before {
   color: transparent;
 }
 
+.cur-sel { height:32px; border:1px solid var(--border); border-radius:8px; background:var(--surface);
+  color:var(--text); font:inherit; font-size:12.5px; font-weight:600; padding:0 10px; cursor:pointer; }
+.cur-sel:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+.cur-orig { font-size:12px; color:var(--text-2); font-weight:400; margin-left:6px; }
+
 .cost-body {
   display: grid;
   grid-template-columns: minmax(260px, 0.9fr) minmax(460px, 1.1fr);
@@ -1611,7 +1616,11 @@ body::before {
     </div>
 
     <div class="card">
-      <div class="section-hd">费用估算</div>
+      <div class="section-hd">费用估算
+        <select class="cur-sel" onchange="setCurrency(this.value)" style="margin-left:auto; display:none;">
+          <option value="USD">USD 美元</option>
+        </select>
+      </div>
       <div class="cost-body">
         <div class="cost-left">
           <div id="cost-rows"></div>
@@ -1679,7 +1688,13 @@ let routeStash = { single: { o: '', d: '' }, multi: { o: '', d: '' } };
 let airlineRows = [];     // ids of the airline rows in the multi-airline list
 let nextAirlineId = 1;
 let lastMultiLegs = [];   // last multi-airline result, per leg (for click-to-detail)
+let lastMultiLeftover = []; // last multi-airline leftover items (for currency re-render)
 let expandedLeg = null;   // index of the leg whose detail is expanded inline, or null
+// Display currency for the main totals. fxRates hold "1 USD = X" pulled from
+// Kintone via /api/fx; null until (and unless) that endpoint is configured.
+let displayCurrency = 'USD';
+let fxRates = { JPY: null, CNY: null };
+const CUR_NAME = { USD: 'USD 美元', JPY: 'JPY 日元', CNY: 'CNY 人民币' };
 let lastCalc = null; // { items, rules, allowance } — lets recalc() rerun packCouriers() without a new AI call
 let lastRender = null; // last rendered result payload — feeds 复制打包方案
 
@@ -1718,6 +1733,59 @@ const AIRLINES = [
   {c:'UO',n:'香港快运'},{c:'MM',n:'乐桃航空'},{c:'5J',n:'宿务太平洋'},
 ];
 const airlineNameOf = code => (AIRLINES.find(a => a.c === code) || {}).n || code;
+
+// ─── Currency (USD default; JPY/CNY when Kintone rates are available) ──────
+const fxReady = () => fxRates.JPY > 0 && fxRates.CNY > 0;
+// A main total in the selected currency, e.g. "USD 1,600" / "JPY 240,000".
+function fmtMoney(usd) {
+  if (usd == null) return '费率未查到';
+  if (displayCurrency === 'USD' || !fxRates[displayCurrency]) return 'USD ' + Math.round(usd).toLocaleString();
+  return displayCurrency + ' ' + Math.round(usd * fxRates[displayCurrency]).toLocaleString();
+}
+// Headline totals: selected currency, with the original USD kept in parentheses
+// when converted so the (USD) line items still reconcile.
+function fmtMoneyDual(usd) {
+  if (usd == null) return '费率未查到';
+  const sel = fmtMoney(usd);
+  if (displayCurrency === 'USD' || !fxRates[displayCurrency]) return sel;
+  return `${sel}<span class="cur-orig">（USD ${Math.round(usd).toLocaleString()}）</span>`;
+}
+// Markup for a currency picker (empty when rates aren't configured).
+function currencySelectHTML(extraStyle = '') {
+  if (!fxReady()) return '';
+  const opts = ['USD', 'JPY', 'CNY'].map(c =>
+    `<option value="${c}"${c === displayCurrency ? ' selected' : ''}>${CUR_NAME[c]}</option>`).join('');
+  const title = `1 USD = ${fxRates.JPY} JPY / ${fxRates.CNY} CNY（来自 Kintone）`;
+  return `<select class="cur-sel" onchange="setCurrency(this.value)" title="${title}" style="${extraStyle}">${opts}</select>`;
+}
+// Refresh any already-in-DOM currency picker (e.g. the static single-mode one).
+function refreshCurrencyOptions() {
+  document.querySelectorAll('.cur-sel').forEach(sel => {
+    sel.style.display = fxReady() ? '' : 'none';
+    if (fxReady()) {
+      sel.title = `1 USD = ${fxRates.JPY} JPY / ${fxRates.CNY} CNY（来自 Kintone）`;
+      sel.innerHTML = ['USD', 'JPY', 'CNY'].map(c =>
+        `<option value="${c}"${c === displayCurrency ? ' selected' : ''}>${CUR_NAME[c]}</option>`).join('');
+    }
+  });
+}
+function setCurrency(v) {
+  displayCurrency = v;
+  document.querySelectorAll('.cur-sel').forEach(s => { s.value = v; });
+  // re-render whichever result view is showing so its totals reformat
+  if (quoteMode === 'multi' && lastMultiLegs.length) renderMultiSummary(lastMultiLegs, lastMultiLeftover);
+  else if (lastRender) renderResults(lastRender);
+}
+async function initFx() {
+  try {
+    const j = await (await fetch('/api/fx')).json();
+    if (j && j.configured && j.usdJpy > 0 && j.usdCny > 0) {
+      fxRates.JPY = j.usdJpy;
+      fxRates.CNY = j.usdCny;
+      refreshCurrencyOptions();
+    }
+  } catch (_) { /* rates unavailable → stay USD-only */ }
+}
 
 // Reusable searchable airline picker. Wires a text input + hidden value + a
 // dropdown list; used by single-airline mode AND every multi-airline row.
@@ -1786,6 +1854,7 @@ const BAGGAGE_LINKS = {
 document.addEventListener('DOMContentLoaded', () => {
   addRow();
   initAirlineCombo();
+  initFx();
   document.getElementById('tbl-body').addEventListener('input', updateCargoSummary);
 });
 
@@ -4678,6 +4747,7 @@ function clearMultiLeg() {
 // "全部装完 / 装不下" answer.
 function renderMultiSummary(legs, leftoverItems) {
   lastMultiLegs = legs; // kept so a row click can render that leg's full detail
+  lastMultiLeftover = leftoverItems; // kept so a currency switch can re-render
   const card = document.getElementById('multi-leg-card');
   collapseLegDetail();  // move #results back home before we rebuild the card markup
   card.style.display = '';
@@ -4688,7 +4758,7 @@ function renderMultiSummary(legs, leftoverItems) {
         <div class="who">${lg.code} · ${lg.name} <span class="ar-see" id="mleg-see-${i}">查看详细 ›</span></div>
         <div class="sub">${lg.cabin} · 用 ${lg.usedCouriers}/${lg.tickets} 张机票 · 承运 ${lg.bags} 件行李</div>
       </div>
-      <div class="amt"><div class="ppl">${lg.usedCouriers} 人</div><div class="usd">${lg.usd == null ? '费率未查到' : 'USD ' + lg.usd.toLocaleString()}</div></div>
+      <div class="amt"><div class="ppl">${lg.usedCouriers} 人</div><div class="usd">${fmtMoney(lg.usd)}</div></div>
     </div>`).join('');
   const totPeople = legs.reduce((s, l) => s + l.usedCouriers, 0);
   const anyNull = legs.some(l => l.usd == null);
@@ -4699,17 +4769,18 @@ function renderMultiSummary(legs, leftoverItems) {
     const kg = leftoverItems.reduce((s, it) => s + it.kg * it.q, 0);
     verdict = `<div class="leftover"><div class="txt">⚠ <b>装不下！</b>所有航司的机票已用尽，仍剩 <b>${n} 件 / ${kg.toFixed(1)} kg</b> 没有位置——请再加一家航司，或调大某家的机票数后重算。</div></div>`;
   } else {
-    verdict = `<div class="allgood">✓ <b>全部货物都能装完！</b>共用 ${totPeople} 位飞人${anyNull ? '' : ` / 总行李费 USD ${totUsd.toLocaleString()}`}。</div>`;
+    verdict = `<div class="allgood">✓ <b>全部货物都能装完！</b>共用 ${totPeople} 位飞人${anyNull ? '' : ` / 总行李费 ${fmtMoneyDual(totUsd)}`}。</div>`;
   }
   card.innerHTML = `
     <div class="section-hd">多航司装载结果
-      <button class="btn-outline" style="margin-left:auto; padding:6px 14px; font-size:12.5px;" onclick="clearMultiLeg()">↺ 重置航司列表</button>
+      ${currencySelectHTML('margin-left:auto;')}
+      <button class="btn-outline" style="margin-left:${fxReady() ? '10px' : 'auto'}; padding:6px 14px; font-size:12.5px;" onclick="clearMultiLeg()">↺ 重置航司列表</button>
     </div>
     ${verdict}
     <div class="mleg-flow" style="margin-top:10px;">${rowsHtml}</div>
     <div class="mtotal">
       <div class="lab">合计（用到 ${legs.length} 家航司）</div>
-      <div class="big"><b>${totPeople} 人</b>${anyNull ? '<span class="u">部分费率未查到</span>' : `<span class="u">USD ${totUsd.toLocaleString()}</span>`}</div>
+      <div class="big"><b>${totPeople} 人</b>${anyNull ? '<span class="u">部分费率未查到</span>' : `<span class="u">${fmtMoneyDual(totUsd)}</span>`}</div>
     </div>`;
 }
 
@@ -5330,7 +5401,7 @@ function renderResults(r) {
 
   document.getElementById('cost-rows').innerHTML =
     costRows.map(x => `<div class="cost-row"><span class="cl">${x.l}</span><span class="cv">${x.html || x.v}</span></div>`).join('') +
-    `<div class="cost-row total"><span class="cl">预计总费用</span><span class="cv">USD ${(cost.total_usd||0).toLocaleString()}</span></div>`;
+    `<div class="cost-row total"><span class="cl">预计总费用</span><span class="cv">${fmtMoneyDual(cost.total_usd || 0)}</span></div>`;
 
   // Piece vs weight concept comparison, when both are available
   const compareEl = document.getElementById('cost-compare');
@@ -5339,11 +5410,11 @@ function renderResults(r) {
     compareEl.innerHTML = `
       <div class="concept-row ${cost.recommended_concept === p.label ? 'picked' : ''}">
         <span>${p.label}${cost.recommended_concept === p.label ? ' ✓ 推荐' : ''}</span>
-        <span>USD ${p.total_usd.toLocaleString()}</span>
+        <span>${fmtMoney(p.total_usd)}</span>
       </div>
       <div class="concept-row ${cost.recommended_concept === w.label ? 'picked' : ''}">
         <span>${w.label}${cost.recommended_concept === w.label ? ' ✓ 推荐' : ''}</span>
-        <span>USD ${w.total_usd.toLocaleString()}</span>
+        <span>${fmtMoney(w.total_usd)}</span>
       </div>`;
     compareEl.style.display = '';
   } else {
