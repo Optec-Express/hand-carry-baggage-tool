@@ -1425,7 +1425,7 @@ body::before {
     <!-- Multi-airline list (shown only in 多航司分段 mode) -->
     <div id="multi-airline-block" style="display:none; margin-top:16px;">
       <div class="section-hd" style="margin-bottom:10px;">航司列表</div>
-      <div id="airline-list"></div>
+      <div id="multi-airline-list"></div>
       <button type="button" class="add-airline" onclick="addAirlineRow()">➕ 增加航司</button>
       <p class="paste-hint" style="margin-top:12px; margin-bottom:0;">
         填好每家航司、舱位和各自可用机票数，点下方按钮，直接告诉你这批货能否全部装完。始发港 / 目的港所有航司共用。
@@ -2356,7 +2356,7 @@ function resetAll() {
   lastCalc = null;
   lastRender = null;
   // full reset also drops the multi-airline list and returns to single mode
-  document.getElementById('airline-list').innerHTML = '';
+  document.getElementById('multi-airline-list').innerHTML = '';
   airlineRows = [];
   setQuoteMode('single');
   updateCargoSummary();
@@ -4495,7 +4495,7 @@ function addAirlineRow() {
     `<label class="ar-mini">含kg<select id="ar-wt-${id}">${document.getElementById('sel-bag-weight').innerHTML}</select></label>` +
     `<div class="ar-tickets"><input type="number" id="ar-tk-${id}" min="1" step="1" placeholder="机票数"><span>张</span></div>` +
     `<button type="button" class="del-btn" title="删除本航司" onclick="delAirlineRow(${id})">✕</button>`;
-  document.getElementById('airline-list').appendChild(div);
+  document.getElementById('multi-airline-list').appendChild(div);
   renumberAirlineRows();
 }
 function delAirlineRow(id) {
@@ -4570,7 +4570,7 @@ function showLegDetail(i) {
 }
 
 function clearMultiLeg() {
-  document.getElementById('airline-list').innerHTML = '';
+  document.getElementById('multi-airline-list').innerHTML = '';
   airlineRows = [];
   lastMultiLegs = [];
   addAirlineRow(); addAirlineRow();
