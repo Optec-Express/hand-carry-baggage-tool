@@ -4489,6 +4489,11 @@ function setQuoteMode(mode) {
     document.getElementById(id).style.display = single ? '' : 'none');
   document.getElementById('multi-airline-block').style.display = single ? 'none' : '';
   document.getElementById('multi-leg-card').style.display = 'none';
+  // Switching modes clears the previous result view so multi-airline output
+  // never lingers in single mode (and vice versa). collapseLegDetail() also
+  // moves #results out of the multi-leg card back to its home slot.
+  collapseLegDetail();
+  document.getElementById('results').style.display = 'none';
   if (!single && !airlineRows.length) { addAirlineRow(); addAirlineRow(); }
   document.getElementById('calc-btn').textContent = single
     ? 'AI 智能计算最优打包方案'
