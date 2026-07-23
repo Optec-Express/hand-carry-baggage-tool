@@ -1779,7 +1779,9 @@ function setCurrency(v) {
 }
 async function initFx() {
   try {
-    const j = await (await fetch('/api/fx')).json();
+    // no-store: never reuse a cached response (e.g. a stale "not configured"
+    // from before the Kintone env vars were set) — always ask for fresh rates.
+    const j = await (await fetch('/api/fx', { cache: 'no-store' })).json();
     if (j && j.configured && j.usdJpy > 0 && j.usdCny > 0) {
       fxRates.JPY = j.usdJpy;
       fxRates.CNY = j.usdCny;

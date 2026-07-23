@@ -20,7 +20,7 @@
 // just shows USD), or { configured:true, usdJpy, usdCny, month } on success.
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Cache-Control', 'public, max-age=600'); // cache 10 min at the edge
+  res.setHeader('Cache-Control', 'no-cache, must-revalidate'); // always revalidate; rates change and misconfig must clear fast
 
   const base       = (process.env.KINTONE_BASE_URL || '').replace(/\/+$/, '');
   const app        = process.env.KINTONE_FX_APP_ID;
