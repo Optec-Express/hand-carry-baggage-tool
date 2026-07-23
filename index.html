@@ -893,7 +893,6 @@ body::before {
   color: transparent;
 }
 
-.cur-orig { font-size:12px; color:var(--text-2); font-weight:400; margin-left:6px; }
 
 .cost-body {
   display: grid;
@@ -1738,14 +1737,6 @@ function fmtMoney(usd) {
   if (usd == null) return '费率未查到';
   if (displayCurrency === 'USD' || !fxRates[displayCurrency]) return 'USD ' + Math.round(usd).toLocaleString();
   return displayCurrency + ' ' + Math.round(usd * fxRates[displayCurrency]).toLocaleString();
-}
-// Headline totals: selected currency, with the original USD kept in parentheses
-// when converted so the (USD) line items still reconcile.
-function fmtMoneyDual(usd) {
-  if (usd == null) return '费率未查到';
-  const sel = fmtMoney(usd);
-  if (displayCurrency === 'USD' || !fxRates[displayCurrency]) return sel;
-  return `${sel}<span class="cur-orig">（USD ${Math.round(usd).toLocaleString()}）</span>`;
 }
 // A segmented USD / JPY / CNY switch (same look as the 单航司/多航司 toggle);
 // empty string when rates aren't configured.
@@ -4762,7 +4753,7 @@ function renderMultiSummary(legs, leftoverItems) {
     const kg = leftoverItems.reduce((s, it) => s + it.kg * it.q, 0);
     verdict = `<div class="leftover"><div class="txt">⚠ <b>装不下！</b>所有航司的机票已用尽，仍剩 <b>${n} 件 / ${kg.toFixed(1)} kg</b> 没有位置——请再加一家航司，或调大某家的机票数后重算。</div></div>`;
   } else {
-    verdict = `<div class="allgood">✓ <b>全部货物都能装完！</b>共用 ${totPeople} 位飞人${anyNull ? '' : ` / 总行李费 ${fmtMoneyDual(totUsd)}`}。</div>`;
+    verdict = `<div class="allgood">✓ <b>全部货物都能装完！</b>共用 ${totPeople} 位飞人${anyNull ? '' : ` / 总行李费 ${fmtMoney(totUsd)}`}。</div>`;
   }
   card.innerHTML = `
     <div class="section-hd">多航司装载结果
@@ -4775,7 +4766,7 @@ function renderMultiSummary(legs, leftoverItems) {
     <div class="mleg-flow" style="margin-top:10px;">${rowsHtml}</div>
     <div class="mtotal">
       <div class="lab">合计（用到 ${legs.length} 家航司）</div>
-      <div class="big"><b>${totPeople} 人</b>${anyNull ? '<span class="u">部分费率未查到</span>' : `<span class="u">${fmtMoneyDual(totUsd)}</span>`}</div>
+      <div class="big"><b>${totPeople} 人</b>${anyNull ? '<span class="u">部分费率未查到</span>' : `<span class="u">${fmtMoney(totUsd)}</span>`}</div>
     </div>`;
   paintCurrencySegs(); // fill the currency switch slot in the freshly-built header
 }
@@ -5397,7 +5388,7 @@ function renderResults(r) {
 
   document.getElementById('cost-rows').innerHTML =
     costRows.map(x => `<div class="cost-row"><span class="cl">${x.l}</span><span class="cv">${x.html || x.v}</span></div>`).join('') +
-    `<div class="cost-row total"><span class="cl">预计总费用</span><span class="cv">${fmtMoneyDual(cost.total_usd || 0)}</span></div>`;
+    `<div class="cost-row total"><span class="cl">预计总费用</span><span class="cv">${fmtMoney(cost.total_usd || 0)}</span></div>`;
 
   // Piece vs weight concept comparison, when both are available
   const compareEl = document.getElementById('cost-compare');
