@@ -1671,6 +1671,9 @@ let importedTotalWeightKg = null;
 // Multi-airline mode: 'single' = normal one-airline quote; 'multi' = airline
 // list, cargo waterfalls through each carrier's ticket allotment in order.
 let quoteMode = 'single';
+// Single and multi modes keep independent cargo lists; on a mode switch the
+// leaving mode's rows are stashed here and the entering mode's are restored.
+let cargoStash = { single: null, multi: null };
 let airlineRows = [];     // ids of the airline rows in the multi-airline list
 let nextAirlineId = 1;
 let lastMultiLegs = [];   // last multi-airline result, per leg (for click-to-detail)
@@ -1996,6 +1999,27 @@ function delRow(id) {
   document.getElementById('r'+id)?.remove();
   if (!rows.length) { addRow(); return; } // always keep one row so the ＋ stays reachable
   renumber();
+  updateCargoSummary();
+}
+
+// Snapshot the current manual cargo rows (raw field values, even partial) so a
+// mode switch can preserve each mode's own list independently.
+function serializeCargo() {
+  return rows.map(id => ({
+    l:  document.getElementById('l'+id)?.value  || '',
+    w:  document.getElementById('w'+id)?.value  || '',
+    h:  document.getElementById('h'+id)?.value  || '',
+    kg: document.getElementById('kg'+id)?.value || '',
+    q:  document.getElementById('q'+id)?.value  || '',
+  }));
+}
+
+// Rebuild the manual cargo table from a snapshot (or one empty row if none).
+function restoreCargo(list) {
+  document.getElementById('tbl-body').innerHTML = '';
+  rows = [];
+  if (list && list.length) list.forEach(d => addRow(d));
+  else addRow();
   updateCargoSummary();
 }
 
@@ -2347,6 +2371,9 @@ function clearOcr() {
 // cached airline rules in localStorage (so a re-lookup stays free) — this
 // only wipes the on-screen inputs, not the paid cache.
 function resetAll() {
+  // both modes' cargo lists are wiped (clear the stash before the mode switch
+  // below, so it can't restore stale rows)
+  cargoStash = { single: null, multi: null };
   // cargo table → single empty row
   document.getElementById('tbl-body').innerHTML = '';
   rows = [];
@@ -4477,7 +4504,14 @@ function assignAndPrice(pieces, rules, strategyLabel, totalBoxes) {
 
 // ─── Multi-airline mode (airline list → one "does it all fit?" answer) ────
 function setQuoteMode(mode) {
+  const prevMode = quoteMode;
   quoteMode = mode;
+  // Single / multi keep separate cargo lists: stash the leaving mode's rows and
+  // load the entering mode's own rows so neither shows the other's cargo.
+  if (prevMode !== mode) {
+    cargoStash[prevMode] = serializeCargo();
+    restoreCargo(cargoStash[mode]);
+  }
   const single = mode === 'single';
   document.getElementById('mode-single').classList.toggle('on', single);
   document.getElementById('mode-multi').classList.toggle('on', !single);
