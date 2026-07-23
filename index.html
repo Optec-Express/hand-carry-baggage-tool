@@ -51,15 +51,7 @@
 
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-  background-color: var(--bg);
-  /* Aviation motif: dashed great-circle routes, airport nodes, jet
-     silhouettes and faint clouds — inline SVG, very low contrast so the
-     white cards stay perfectly readable on top. */
-  background-image: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1600 900'><g fill='none' stroke='%23CBD9EF' opacity='.55'><circle cx='1390' cy='650' r='175'/><ellipse cx='1390' cy='650' rx='120' ry='175'/><ellipse cx='1390' cy='650' rx='55' ry='175'/><ellipse cx='1390' cy='650' rx='175' ry='108'/><ellipse cx='1390' cy='650' rx='175' ry='48'/></g><path transform='translate(190,700) rotate(45) scale(7) translate(-12,-12)' fill='%23DCE7F5' opacity='.65' d='M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z'/><g fill='none' stroke='%23BCCEE9' stroke-width='2' stroke-dasharray='1 12' stroke-linecap='round' opacity='.85'><path d='M-60 640 Q 500 300 1660 520'/><path d='M-60 250 Q 700 60 1660 330'/><path d='M150 960 Q 900 600 1720 780'/><path d='M-60 430 Q 800 240 1660 110'/><path d='M880 -60 Q 1080 380 1720 620'/></g><g fill='%23AFC5E6'><circle cx='260' cy='520' r='4'/><circle cx='1050' cy='420' r='4'/><circle cx='620' cy='160' r='4'/><circle cx='1330' cy='280' r='4'/><circle cx='700' cy='790' r='4'/><circle cx='1180' cy='195' r='4'/><circle cx='420' cy='385' r='4'/></g><g fill='none' stroke='%23AFC5E6' opacity='.6'><circle cx='260' cy='520' r='9'/><circle cx='1050' cy='420' r='9'/><circle cx='620' cy='160' r='9'/><circle cx='1330' cy='280' r='9'/><circle cx='700' cy='790' r='9'/><circle cx='1180' cy='195' r='9'/><circle cx='420' cy='385' r='9'/></g><g fill='%23DFE9F6'><ellipse cx='1250' cy='120' rx='90' ry='22'/><ellipse cx='1320' cy='100' rx='60' ry='18'/><ellipse cx='330' cy='800' rx='100' ry='24'/><ellipse cx='420' cy='780' rx='70' ry='18'/><ellipse cx='80' cy='150' rx='70' ry='18'/><ellipse cx='920' cy='70' rx='80' ry='20'/><ellipse cx='990' cy='55' rx='50' ry='15'/><ellipse cx='1520' cy='820' rx='75' ry='19'/><ellipse cx='55' cy='470' rx='60' ry='16'/></g><g fill='%239FB9E0'><path transform='translate(690,140) rotate(100) scale(1.9) translate(-12,-12)' d='M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z'/><path transform='translate(470,440) rotate(55) scale(1.7) translate(-12,-12)' d='M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z'/><path transform='translate(1010,690) rotate(100) scale(1.6) translate(-12,-12)' d='M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z'/><path transform='translate(1100,200) rotate(70) scale(1.5) translate(-12,-12)' d='M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z'/><path transform='translate(1250,480) rotate(125) scale(1.4) translate(-12,-12)' d='M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z'/></g></svg>");
-  background-repeat: no-repeat;
-  background-attachment: fixed;
-  background-size: cover;
-  background-position: center;
+  background-color: #08111f;  /* dark fallback shown behind / before the hero video loads */
   color: var(--text);
   font-size: 13.5px;
   line-height: 1.55;
@@ -67,8 +59,31 @@ body {
   min-height: 100vh;
 }
 
-/* Soft coloured glows layered over the aviation art for a livelier canvas.
-   z-index:-1 keeps them above the page background but behind all content. */
+/* Full-screen cinematic video backdrop — an airplane wing above the clouds.
+   z-index:-2 sits behind everything; the scrim below (body::before, z-index:-1)
+   keeps white cards and text legible over it. */
+#bg-video {
+  position: fixed;
+  inset: -3%;                 /* slight overscan so cursor parallax never reveals an edge */
+  z-index: -2;
+  pointer-events: none;
+  overflow: hidden;
+  transform: translate(calc(var(--mx,0) * 14px), calc(var(--my,0) * 14px));
+  transition: transform .4s ease-out;
+}
+#bg-video video {
+  width: 100%; height: 100%;
+  object-fit: cover;
+  transform-origin: 62% 42%;
+  /* slow Ken Burns push so the sky feels alive even though the clip loops */
+  animation: bg-kenburns 44s ease-in-out infinite alternate;
+}
+@keyframes bg-kenburns {
+  from { transform: scale(1.05); }
+  to   { transform: scale(1.15); }
+}
+
+/* Dark scrim over the video for text / card legibility (deeper at top & bottom). */
 body::before {
   content: '';
   position: fixed;
@@ -76,37 +91,12 @@ body::before {
   z-index: -1;
   pointer-events: none;
   background:
-    radial-gradient(900px 520px at 8% -8%, rgba(124,92,252,.16), transparent 60%),
-    radial-gradient(840px 480px at 110% 4%, rgba(6,182,212,.15), transparent 55%),
-    radial-gradient(760px 540px at 50% 120%, rgba(236,72,153,.11), transparent 60%);
-  /* slow breathing drift + a gentle nudge toward the cursor for interactivity */
-  animation: bg-glow 26s ease-in-out infinite alternate;
-}
-@keyframes bg-glow {
-  from { transform: translate(calc(var(--mx,0) * -22px), calc(var(--my,0) * -22px)) scale(1); }
-  to   { transform: translate(calc(var(--mx,0) * -22px + 26px), calc(var(--my,0) * -22px + 16px)) scale(1.06); }
-}
-
-/* Jets drifting across the canvas; the whole layer eases toward the cursor. */
-#bg-fx {
-  position: fixed; inset: 0; z-index: -1; pointer-events: none; overflow: hidden;
-  transform: translate(calc(var(--mx,0) * 16px), calc(var(--my,0) * 16px));
-  transition: transform .35s ease-out;
-}
-#bg-fx .fx-plane {
-  position: absolute; left: 0; width: var(--sz,26px); height: var(--sz,26px);
-  fill: #9FB9E0; opacity: .42; filter: drop-shadow(0 2px 5px rgba(80,110,170,.18));
-  animation: fx-fly var(--dur,50s) linear var(--delay,0s) infinite;
-}
-@keyframes fx-fly {
-  0%   { transform: translate(-14vw, 0) rotate(var(--rot,70deg)); opacity: 0; }
-  10%  { opacity: .45; }
-  90%  { opacity: .45; }
-  100% { transform: translate(115vw, var(--rise,-4vh)) rotate(var(--rot,70deg)); opacity: 0; }
+    linear-gradient(180deg, rgba(6,13,26,.55) 0%, rgba(6,13,26,.30) 32%, rgba(6,13,26,.40) 68%, rgba(6,13,26,.74) 100%),
+    radial-gradient(1200px 720px at 50% 40%, rgba(6,13,26,.05), rgba(6,13,26,.50));
 }
 @media (prefers-reduced-motion: reduce) {
-  #bg-fx .fx-plane, body::before { animation: none; }
-  #bg-fx { transform: none; }
+  #bg-video video { animation: none; }
+  #bg-video { transform: none; }
 }
 
 /* ── Header ─────────────────────────────────────────────── */
@@ -1377,14 +1367,12 @@ body::before {
 </head>
 <body>
 
-<!-- Animated background: a few jets drifting across, parallax on cursor move.
-     Decorative only (aria-hidden, pointer-events:none, behind all content). -->
-<div id="bg-fx" aria-hidden="true">
-  <svg class="fx-plane" viewBox="0 0 24 24" style="top:13%; --sz:22px; --dur:44s; --delay:-6s;  --rot:70deg;  --rise:-6vh;"><path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z"/></svg>
-  <svg class="fx-plane" viewBox="0 0 24 24" style="top:33%; --sz:32px; --dur:62s; --delay:-26s; --rot:62deg;  --rise:-3vh;"><path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z"/></svg>
-  <svg class="fx-plane" viewBox="0 0 24 24" style="top:57%; --sz:18px; --dur:38s; --delay:-15s; --rot:78deg;  --rise:-9vh;"><path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z"/></svg>
-  <svg class="fx-plane" viewBox="0 0 24 24" style="top:73%; --sz:26px; --dur:70s; --delay:-44s; --rot:66deg;  --rise:-2vh;"><path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z"/></svg>
-  <svg class="fx-plane" viewBox="0 0 24 24" style="top:89%; --sz:20px; --dur:52s; --delay:-33s; --rot:72deg;  --rise:-5vh;"><path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z"/></svg>
+<!-- Cinematic video backdrop (airplane wing above the clouds). Decorative only
+     (aria-hidden, pointer-events:none, behind all content); parallax on cursor move. -->
+<div id="bg-video" aria-hidden="true">
+  <video muted loop playsinline autoplay preload="auto">
+    <source src="bg-hero.mp4" type="video/mp4">
+  </video>
 </div>
 
 <!-- ── API Key Modal ──────────────────────────────────────── -->
