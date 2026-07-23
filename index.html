@@ -1694,6 +1694,7 @@ let expandedLeg = null;   // index of the leg whose detail is expanded inline, o
 // Kintone via /api/fx; null until (and unless) that endpoint is configured.
 let displayCurrency = 'USD';
 let fxRates = { JPY: null, CNY: null };
+let fxMonth = null; // YYYYMM of the Kintone rate record actually used
 const CUR_NAME = { USD: 'USD 美元', JPY: 'JPY 日元', CNY: 'CNY 人民币' };
 let lastCalc = null; // { items, rules, allowance } — lets recalc() rerun packCouriers() without a new AI call
 let lastRender = null; // last rendered result payload — feeds 复制打包方案
@@ -1736,6 +1737,7 @@ const airlineNameOf = code => (AIRLINES.find(a => a.c === code) || {}).n || code
 
 // ─── Currency (USD default; JPY/CNY when Kintone rates are available) ──────
 const fxReady = () => fxRates.JPY > 0 && fxRates.CNY > 0;
+const fxTitle = () => `${fxMonth ? fxMonth + ' 月汇率：' : ''}1 USD = ${fxRates.JPY} JPY / ${fxRates.CNY} CNY（来自 Kintone）`;
 // A main total in the selected currency, e.g. "USD 1,600" / "JPY 240,000".
 function fmtMoney(usd) {
   if (usd == null) return '费率未查到';
@@ -1755,15 +1757,14 @@ function currencySelectHTML(extraStyle = '') {
   if (!fxReady()) return '';
   const opts = ['USD', 'JPY', 'CNY'].map(c =>
     `<option value="${c}"${c === displayCurrency ? ' selected' : ''}>${CUR_NAME[c]}</option>`).join('');
-  const title = `1 USD = ${fxRates.JPY} JPY / ${fxRates.CNY} CNY（来自 Kintone）`;
-  return `<select class="cur-sel" onchange="setCurrency(this.value)" title="${title}" style="${extraStyle}">${opts}</select>`;
+  return `<select class="cur-sel" onchange="setCurrency(this.value)" title="${fxTitle()}" style="${extraStyle}">${opts}</select>`;
 }
 // Refresh any already-in-DOM currency picker (e.g. the static single-mode one).
 function refreshCurrencyOptions() {
   document.querySelectorAll('.cur-sel').forEach(sel => {
     sel.style.display = fxReady() ? '' : 'none';
     if (fxReady()) {
-      sel.title = `1 USD = ${fxRates.JPY} JPY / ${fxRates.CNY} CNY（来自 Kintone）`;
+      sel.title = fxTitle();
       sel.innerHTML = ['USD', 'JPY', 'CNY'].map(c =>
         `<option value="${c}"${c === displayCurrency ? ' selected' : ''}>${CUR_NAME[c]}</option>`).join('');
     }
@@ -1782,6 +1783,7 @@ async function initFx() {
     if (j && j.configured && j.usdJpy > 0 && j.usdCny > 0) {
       fxRates.JPY = j.usdJpy;
       fxRates.CNY = j.usdCny;
+      fxMonth = j.month || null;
       refreshCurrencyOptions();
     }
   } catch (_) { /* rates unavailable → stay USD-only */ }
