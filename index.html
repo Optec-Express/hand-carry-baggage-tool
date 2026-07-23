@@ -893,9 +893,6 @@ body::before {
   color: transparent;
 }
 
-.cur-sel { height:32px; border:1px solid var(--border); border-radius:8px; background:var(--surface);
-  color:var(--text); font:inherit; font-size:12.5px; font-weight:600; padding:0 10px; cursor:pointer; }
-.cur-sel:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
 .cur-orig { font-size:12px; color:var(--text-2); font-weight:400; margin-left:6px; }
 
 .cost-body {
@@ -1617,9 +1614,7 @@ body::before {
 
     <div class="card">
       <div class="section-hd">费用估算
-        <select class="cur-sel" onchange="setCurrency(this.value)" style="margin-left:auto; display:none;">
-          <option value="USD">USD 美元</option>
-        </select>
+        <span class="cur-seg-slot" style="margin-left:auto;"></span>
       </div>
       <div class="cost-body">
         <div class="cost-left">
@@ -1752,30 +1747,24 @@ function fmtMoneyDual(usd) {
   if (displayCurrency === 'USD' || !fxRates[displayCurrency]) return sel;
   return `${sel}<span class="cur-orig">（USD ${Math.round(usd).toLocaleString()}）</span>`;
 }
-// Markup for a currency picker (empty when rates aren't configured).
-function currencySelectHTML(extraStyle = '') {
+// A segmented USD / JPY / CNY switch (same look as the 单航司/多航司 toggle);
+// empty string when rates aren't configured.
+function currencySegHTML() {
   if (!fxReady()) return '';
-  const opts = ['USD', 'JPY', 'CNY'].map(c =>
-    `<option value="${c}"${c === displayCurrency ? ' selected' : ''}>${CUR_NAME[c]}</option>`).join('');
-  return `<select class="cur-sel" onchange="setCurrency(this.value)" title="${fxTitle()}" style="${extraStyle}">${opts}</select>`;
+  const btns = ['USD', 'JPY', 'CNY'].map(c =>
+    `<button type="button" class="${c === displayCurrency ? 'on' : ''}" onclick="setCurrency('${c}')">${c}</button>`).join('');
+  return `<div class="mode-seg" role="tablist" aria-label="币种" title="${fxTitle()}">${btns}</div>`;
 }
-// Refresh any already-in-DOM currency picker (e.g. the static single-mode one).
-function refreshCurrencyOptions() {
-  document.querySelectorAll('.cur-sel').forEach(sel => {
-    sel.style.display = fxReady() ? '' : 'none';
-    if (fxReady()) {
-      sel.title = fxTitle();
-      sel.innerHTML = ['USD', 'JPY', 'CNY'].map(c =>
-        `<option value="${c}"${c === displayCurrency ? ' selected' : ''}>${CUR_NAME[c]}</option>`).join('');
-    }
-  });
+// (Re)paint every currency switch slot in the DOM (single + multi result cards).
+function paintCurrencySegs() {
+  document.querySelectorAll('.cur-seg-slot').forEach(s => { s.innerHTML = currencySegHTML(); });
 }
 function setCurrency(v) {
   displayCurrency = v;
-  document.querySelectorAll('.cur-sel').forEach(s => { s.value = v; });
-  // re-render whichever result view is showing so its totals reformat
+  // re-render whichever result view is showing so its totals reformat…
   if (quoteMode === 'multi' && lastMultiLegs.length) renderMultiSummary(lastMultiLegs, lastMultiLeftover);
   else if (lastRender) renderResults(lastRender);
+  paintCurrencySegs(); // …then refresh the switch's active button everywhere
 }
 async function initFx() {
   try {
@@ -1786,7 +1775,7 @@ async function initFx() {
       fxRates.JPY = j.usdJpy;
       fxRates.CNY = j.usdCny;
       fxMonth = j.month || null;
-      refreshCurrencyOptions();
+      paintCurrencySegs();
     }
   } catch (_) { /* rates unavailable → stay USD-only */ }
 }
@@ -4777,8 +4766,10 @@ function renderMultiSummary(legs, leftoverItems) {
   }
   card.innerHTML = `
     <div class="section-hd">多航司装载结果
-      ${currencySelectHTML('margin-left:auto;')}
-      <button class="btn-outline" style="margin-left:${fxReady() ? '10px' : 'auto'}; padding:6px 14px; font-size:12.5px;" onclick="clearMultiLeg()">↺ 重置航司列表</button>
+      <div style="margin-left:auto; display:flex; align-items:center; gap:10px;">
+        <span class="cur-seg-slot"></span>
+        <button class="btn-outline" style="padding:6px 14px; font-size:12.5px;" onclick="clearMultiLeg()">↺ 重置航司列表</button>
+      </div>
     </div>
     ${verdict}
     <div class="mleg-flow" style="margin-top:10px;">${rowsHtml}</div>
@@ -4786,6 +4777,7 @@ function renderMultiSummary(legs, leftoverItems) {
       <div class="lab">合计（用到 ${legs.length} 家航司）</div>
       <div class="big"><b>${totPeople} 人</b>${anyNull ? '<span class="u">部分费率未查到</span>' : `<span class="u">${fmtMoneyDual(totUsd)}</span>`}</div>
     </div>`;
+  paintCurrencySegs(); // fill the currency switch slot in the freshly-built header
 }
 
 // ─── Lookup one airline's finalized rules (cache → AI → code overrides) ───
@@ -5448,6 +5440,7 @@ function renderResults(r) {
 
   document.getElementById('cost-disclaimer').textContent = `⚠ ${cost.disclaimer || '费用仅供参考，以航司实际收取为准'}`;
 
+  paintCurrencySegs(); // keep the 费用估算 header's currency switch in sync
   document.getElementById('results').style.display = 'block';
   document.getElementById('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
