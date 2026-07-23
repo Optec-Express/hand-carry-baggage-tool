@@ -1517,7 +1517,7 @@ body::before {
           <tbody id="tbl-body"></tbody>
         </table>
       </div>
-      <div class="cargo-summary" id="cargo-summary">合计：<b>0</b> 件 · <b>0.0</b> kg</div>
+      <div class="cargo-summary" id="cargo-summary">合计：<input type="number" id="cargo-sum-q" class="ocr-sum-input" min="0" step="1" placeholder="0" oninput="onCargoSummaryEdit('q')"> 件 · <input type="number" id="cargo-sum-kg" class="ocr-sum-input" min="0" step="0.01" placeholder="0.00" oninput="onCargoSummaryEdit('kg')"> kg<span id="cargo-sum-suffix"></span></div>
     </div>
 
     <!-- Paste tab -->
@@ -2117,6 +2117,7 @@ function serializeCargo() {
 function restoreCargo(list) {
   document.getElementById('tbl-body').innerHTML = '';
   rows = [];
+  cargoSummaryEdited = { q: false, kg: false }; // new list → totals track the rows again
   if (list && list.length) list.forEach(d => addRow(d));
   else addRow();
   updateCargoSummary();
@@ -2204,6 +2205,13 @@ function collectItemsWithEstimatedWeight() {
 // ─── Cargo summary (live total pieces / weight) ────────────
 // Counts every row that has at least dimensions entered, summing whatever
 // weight values are actually present rather than requiring a fully valid row.
+// Manual 合计 is editable so an inaccurate AI-recognised total can be corrected
+// by hand. Auto-fills from the row sums, but once the user edits a field we stop
+// overwriting it (same behaviour as the OCR summary). No calc logic changes —
+// this only governs what the two 合计 boxes display.
+let cargoSummaryEdited = { q: false, kg: false };
+function onCargoSummaryEdit(field) { cargoSummaryEdited[field] = true; }
+
 function updateCargoSummary() {
   let totalQty = 0, totalKg = 0, missingWeight = false;
   for (const id of rows) {
@@ -2225,8 +2233,12 @@ function updateCargoSummary() {
   } else if (missingWeight) {
     suffix = ' <span style="color:var(--text-3);">（部分件重量未填）</span>';
   }
-  const el = document.getElementById('cargo-summary');
-  if (el) el.innerHTML = `合计：<b>${totalQty}</b> 件 · <b>${totalKg.toFixed(2)}</b> kg` + suffix;
+  const qEl = document.getElementById('cargo-sum-q');
+  const kgEl = document.getElementById('cargo-sum-kg');
+  if (qEl && !cargoSummaryEdited.q) qEl.value = totalQty || '';
+  if (kgEl && !cargoSummaryEdited.kg) kgEl.value = totalKg ? totalKg.toFixed(2) : '';
+  const sfx = document.getElementById('cargo-sum-suffix');
+  if (sfx) sfx.innerHTML = suffix;
 }
 
 // 堆叠方式分段开关（可堆叠 / 不可堆叠）。选「不可堆叠」后每箱算一件、不合并。
@@ -2484,6 +2496,7 @@ function resetAll() {
   const note = document.getElementById('cargo-import-note');
   if (note) { note.style.display = 'none'; note.innerHTML = ''; }
   importedTotalWeightKg = null;
+  cargoSummaryEdited = { q: false, kg: false };
   // 堆叠方式复位到「可堆叠」
   noStacking = false;
   syncStackSeg();
