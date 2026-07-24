@@ -4419,15 +4419,21 @@ const CI_ZONES = {
 const CI_LOOKUP = (() => { const m = {}; for (const k in CI_ZONES) for (const a of CI_ZONES[k]) if (!(a in m)) m[a] = k; return m; })();
 function ciZoneOf(iata) { return CI_LOOKUP[(iata || '').trim().toUpperCase()] || null; }
 const CI_ZONE_CN = { TW: '台灣', Z1: '第1區(東亞/東南亞)', Z2: '第2區(澳紐/印度/其他亞洲)', Z3: '第3區(美加歐指定城市/中東)', Z4: '第4區(其他美加歐/非洲)', Z5: '第5區(中南美洲)', Z6: '第6區(緬甸)' };
-// Directional extra-piece fee (official USD). Only 台灣 & 第1區 origin rows are
-// published; other origins resolve by symmetry (dest→origin) below.
+// Extra-piece fee (official USD), full 出發×抵達 matrix — confirmed symmetric
+// against every origin row on CI's site. AU↔NZ cross-Tasman points within Z2
+// are a USD 50 special we ignore (extremely rare here) → Z2↔Z2 uses 230.
 const CI_EXCESS = {
   TW: { Z1: 140, Z2: 170, Z3: 200, Z4: 230, Z5: 260, Z6: 300 },
   Z1: { TW: 140, Z1: 170, Z2: 200, Z3: 230, Z4: 250, Z5: 260, Z6: 300 },
+  Z2: { TW: 170, Z1: 200, Z2: 230, Z3: 250, Z4: 260, Z5: 270, Z6: 310 },
+  Z3: { TW: 200, Z1: 230, Z2: 250, Z3: 260, Z4: 270, Z5: 280, Z6: 320 },
+  Z4: { TW: 230, Z1: 250, Z2: 260, Z3: 270, Z4: 280, Z5: 290, Z6: 330 },
+  Z5: { TW: 260, Z1: 260, Z2: 270, Z3: 280, Z4: 290, Z5: 300, Z6: 340 },
+  Z6: { TW: 300, Z1: 300, Z2: 310, Z3: 320, Z4: 330, Z5: 340 },
 };
 function ciExcessFee(o, d) {
   if (CI_EXCESS[o] && CI_EXCESS[o][d] != null) return CI_EXCESS[o][d];
-  if (CI_EXCESS[d] && CI_EXCESS[d][o] != null) return CI_EXCESS[d][o]; // symmetric fallback
+  if (CI_EXCESS[d] && CI_EXCESS[d][o] != null) return CI_EXCESS[d][o]; // symmetric fallback (e.g. Z6↔Z6)
   return null;
 }
 
