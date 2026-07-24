@@ -1734,7 +1734,7 @@ let noStacking = false;
 // displayed values are trusted (backend-hardcoded / official-scraped). Every
 // OTHER airline's numbers come from the live AI lookup and are shown in pink to
 // flag "verify this — it's an AI estimate, not confirmed".
-const HARDCODED_AIRLINES = new Set(['CX','KE','JL','QR','EK','LH','AA','UA','NH','TK','BR','OZ','HX','5J']);
+const HARDCODED_AIRLINES = new Set(['CX','KE','JL','QR','EK','LH','AA','UA','NH','TK','BR','OZ','HX','5J','MU']);
 
 // One flyer realistically hauls ~100–150kg. When an airline publishes no
 // per-person total-weight cap, we fall back to this in packing AND surface it
@@ -4004,6 +4004,145 @@ function hxBuildRules(cabin, origin, destination) {
   return rules;
 }
 
+// ─── China Eastern (MU / 东上航) hardcoded fees ────────────────────────────
+// Captured 2026-07 from CEAIR's OFFICIAL pages: "免费托运行李额及规格" +
+// "普通行李逾重收费标准" (screenshots supplied by the user). CHINA-CENTRIC:
+// every international fee zone is defined relative to 中国大陆 — one endpoint is
+// assumed to be mainland China; the OTHER endpoint's region selects the zone.
+//   • Domestic (CN↔CN): WEIGHT concept. 逾重费 = 每公斤按当日经济舱单程最高
+//     直达公布票价的 1.5% —— 依票价浮动，无法预置，故费率留空、请人工按票价核算。
+//   • International: PIECE concept. Free pieces depend on cabin + region; excess/
+//     oversize/overweight billed in RMB and STACK (超大+超重+超件累加，引擎已累加).
+// Fees are published in RMB (以所在国家/地区等值货币收取); USD shown here is a
+// convenience conversion at a fixed reference rate — 以官网人民币金额为准.
+// Single piece: 经济舱标准 23kg（超 32kg 走货运）、免费尺寸三边和 158cm、
+// 159–203cm 收超大费、超 203cm 本工具按走货运处理（>203cm 档费率见备注，人工加收）。
+const MU_RMB_PER_USD = 7.2;                    // 2026-07 reference rate; update when it drifts
+const muUsd = rmb => (rmb == null ? null : Math.round(rmb / MU_RMB_PER_USD));
+// Region buckets, all relative to mainland China. Only the common courier ports
+// are listed; an unrecognised port falls through to manual entry.
+const MU_REGIONS = {
+  CN:  ['PEK','PKX','PVG','SHA','CAN','SZX','CTU','TFU','CKG','HGH','XIY','NKG','WUH','CSX','KMG','XMN','TSN','HAK','SYX','CGO','FOC','TAO','DLC','SHE','HRB','URC','KWE','NNG','KWL','LHW','INC','TYN','HET','CGQ','SJW','JJN','WNZ','NGB','HFE','JHG','LJG','YNT','WEH','ZUH','SWA','HIA','CZX','NTG','YIW','WUX'],
+  HKMOTW: ['HKG','MFM','TPE','TSA','KHH','RMQ','TNN','HUN','KNH'],
+  JP:  ['NRT','HND','KIX','ITM','NGO','NKM','CTS','FUK','OKA','KOJ','HIJ','SDJ','KMJ','NGS','OIT','TAK','MYJ','KMQ','FSZ','TOY','OKJ','HKD','KMI','ISG','MMY','KKJ','AOJ','AXT'],
+  KR:  ['ICN','GMP','PUS','CJU','TAE','KWJ','USN','CJJ'],
+  AMR: ['JFK','EWR','LGA','BOS','IAD','DCA','ORD','DFW','IAH','ATL','MIA','LAX','SFO','SJC','SEA','DEN','PHX','LAS','PHL','SAN','PDX','HNL','SLC','DTW','MSP','YYZ','YVR','YUL','YYC','YOW','MEX','CUN','GDL','MTY','GRU','GIG','EZE','SCL','BOG','LIM','UIO','PTY','MVD','ASU','GEO','CCS'],
+  OCE: ['SYD','MEL','BNE','PER','ADL','OOL','CNS','AKL','CHC','WLG','ZQN'],
+  EU:  ['LHR','LGW','MAN','EDI','DUB','CDG','ORY','NCE','LYS','FRA','MUC','BER','DUS','HAM','STR','AMS','BRU','VIE','ZRH','GVA','MXP','FCO','VCE','NAP','MAD','BCN','LIS','OPO','CPH','ARN','GOT','OSL','HEL','PRG','BUD','WAW','KRK','OTP','SOF','ZAG','BEG','ATH','SKG','IST','SAW','ADB','AYT','MLA','KEF','LED','SVO','DME','VKO','VVO','KHV','IKT','KBP'],
+  AFR: ['JNB','CPT','DUR','NBO','MBA','DAR','EBB','KGL','ADD','LOS','ABV','PHC','ACC','ABJ','DKR','LAD','MPM','WDH','GBE','HRE','LUN','TNR','SEZ','MRU','CMN','RAK','TUN','ALG','KRT','JIB','ZNZ'],
+  EG:  ['CAI','HRG','SSH','LXR','ASW','HBE'],
+  SG:  ['SIN'],
+  TH:  ['BKK','DMK','HKT','CNX','CEI','HDY','USM','KBV','UTP'],
+  SEA: ['HAN','SGN','DAD','CXR','PQC','VII','HPH','KUL','PEN','BKI','KCH','LGK','JHB','CGK','DPS','SUB','UPG','MNL','CEB','DVO','CRK','PNH','REP','VTE','LPQ','RGN','MDL','BWN','ROR'],
+  SAS: ['DEL','BOM','BLR','MAA','HYD','CCU','COK','TRV','AMD','GOI','NAG','PNQ','DAC','CGP','KTM','CMB','MLE','ISB','KHI','LHE'],
+  CAS: ['ALA','NQZ','TAS','FRU','GYD','TBS','EVN','ASB','DYU','OSS'],
+  NAS: ['ULN'],
+  WAS: ['DXB','AUH','SHJ','DOH','RUH','JED','DMM','MED','KWI','BAH','MCT','SLL','AMM','BEY','TLV','IKA','THR','MHD','BGW','BSR','EBL','KWI'],
+};
+const MU_REGION_CN = { CN:'中国大陆', HKMOTW:'港澳台', JP:'日本', KR:'韩国', AMR:'美洲', OCE:'澳大利亚/新西兰', EU:'欧洲(含俄/土)', AFR:'非洲(除埃及)', EG:'埃及', SG:'新加坡', TH:'泰国', SEA:'东南亚', SAS:'南亚', NAS:'北亚', CAS:'中亚', WAS:'中东/西亚' };
+const MU_LOOKUP = (() => { const m = {}; for (const k in MU_REGIONS) for (const a of MU_REGIONS[k]) m[a] = k; return m; })();
+function muRegionOf(iata) { return MU_LOOKUP[(iata || '').trim().toUpperCase()] || null; }
+// International excess/oversize/overweight — RMB, economy. Keyed by the fee zone
+// that the non-China endpoint's region falls into (逾重收费 表 2). x1=超件第一件,
+// xn=超件第二件及更多, os1=超大 159–203cm, os2=超大 >203cm, ow=经济舱超重 23–32kg,
+// owBiz=公务舱超重 32–45kg（仅美洲线 z1 公布，其余为空）.
+const MU_FEE_ZONES = {
+  z1: { x1:1300, xn:2000, os1:1000, os2:2700, ow:1000, owBiz:2700, cn:'中国大陆↔美洲' },
+  z2: { x1:1100, xn:2000, os1:1000, os2:2000, ow:1000, owBiz:null, cn:'中国大陆↔澳/新西兰' },
+  z3: { x1:1000, xn:2000, os1:1000, os2:2000, ow:1000, owBiz:null, cn:'中国大陆↔欧洲/非洲(除埃及)/日韩' },
+  z4: { x1:800,  xn:1000, os1:1000, os2:2000, ow:1000, owBiz:null, cn:'中国大陆↔港澳台' },
+  z5: { x1:800,  xn:1200, os1:1000, os2:2000, ow:1000, owBiz:null, cn:'中国大陆↔埃及/东南亚/南亚/北亚/中亚/西亚/中东' },
+};
+// non-China region → fee zone.
+const MU_REGION_ZONE = { AMR:'z1', OCE:'z2', EU:'z3', AFR:'z3', JP:'z3', KR:'z3', HKMOTW:'z4', EG:'z5', SG:'z5', TH:'z5', SEA:'z5', SAS:'z5', NAS:'z5', CAS:'z5', WAS:'z5' };
+// Standard-economy free pieces by the non-China region (免费行李额 表 1).
+// 头等 = econ+? handled in builder; here is the base economy count.
+const MU_FREE_ECON = { AMR:2, AFR:2, EG:2, WAS:2, SG:2, OCE:2, JP:2, EU:1, KR:1, HKMOTW:1, TH:1, SEA:1, SAS:1, NAS:1, CAS:1 };
+
+function muBuildRules(cabin, origin, destination) {
+  const biz = (cabin === '商务舱' || cabin === '头等舱');
+  const first = (cabin === '头等舱');
+  const superEcon = (cabin === '超级经济舱');
+  const o = muRegionOf(origin), d = muRegionOf(destination);
+  const rules = {
+    airline_code: 'MU', airline_name_cn: '中国东方航空', cabin_class: cabin,
+    length_limit_cm: null, width_limit_cm: null, height_limit_cm: null,
+    max_total_weight_kg: 0,
+    weight_concept_available: false, weight_concept_allowance_kg: null,
+    weight_concept_excess_fee_usd_per_kg: null, weight_concept_text: '',
+    piece_concept_available: true,
+    weight_limit_kg: biz ? 45 : 32,
+    standard_weight_kg: biz ? 32 : 23,
+    standard_linear_cm: 158, linear_limit_cm: 203,
+    free_bags_per_pax: 2, max_bags_per_pax: 12,
+  };
+  // Neither endpoint recognised, or a route that touches no China port and isn't
+  // clearly a China-mainland pairing → we can't pick a zone. Manual entry.
+  if (!o || !d) {
+    rules.excess_bag_fee_usd = null; rules.overweight_fee_usd = null; rules.oversize_fee_usd = null;
+    rules.excess_bag_fee_text = rules.overweight_fee_text = rules.oversize_fee_text = '未查到，请手动填写';
+    rules.notes = '东航按航线区域（相对中国大陆）计费，无法识别该港口所属区域，请手动填写费率';
+    return rules;
+  }
+  // Domestic — WEIGHT concept; excess is fare-dependent (1.5% of top econ fare/kg), can't be pre-set.
+  if (o === 'CN' && d === 'CN') {
+    rules.piece_concept_available = false;
+    rules.weight_concept_available = true;
+    rules.weight_concept_allowance_kg = first ? 40 : (biz ? 30 : 20); // 国内计重制免费额度
+    rules.weight_concept_excess_fee_usd_per_kg = null; // 依当日票价，无法预置
+    rules.weight_concept_text = '每公斤 = 当日经济舱单程最高直达公布票价 × 1.5%（依票价浮动，请人工核算）';
+    rules.weight_limit_kg = 50; rules.standard_weight_kg = 50; rules.standard_linear_cm = 200; rules.linear_limit_cm = 200;
+    rules.excess_bag_fee_usd = null; rules.overweight_fee_usd = null; rules.oversize_fee_usd = null;
+    rules.excess_bag_fee_text = rules.overweight_fee_text = rules.oversize_fee_text = '国内计重制，按公斤计';
+    rules.notes = `东航国内航线计重制：免费额度 ${rules.weight_concept_allowance_kg}kg（${first ? '头等' : biz ? '公务' : '经济'}），单件 ≤50kg、尺寸 40×60×100cm 内。逾重费 = 每公斤按当日成人经济舱单程最高直达公布票价的 1.5%，随票价浮动无法预置，请按实际票价人工核算。⚠ 以东航官网/值机柜台为准。`;
+    return rules;
+  }
+  // International — one endpoint China, the other picks the zone. If neither is
+  // China (both foreign on an MU codeshare), fall back to manual.
+  const other = (o === 'CN') ? d : (d === 'CN') ? o : null;
+  if (!other) {
+    rules.excess_bag_fee_usd = null; rules.overweight_fee_usd = null; rules.oversize_fee_usd = null;
+    rules.excess_bag_fee_text = rules.overweight_fee_text = rules.oversize_fee_text = '未查到，请手动填写';
+    rules.notes = '东航国际费率以「中国大陆↔目的地」区域界定，该航线两端均非中国大陆（或为经中国大陆中转的联程），请手动填写费率';
+    return rules;
+  }
+  const zoneKey = MU_REGION_ZONE[other];
+  const f = MU_FEE_ZONES[zoneKey];
+  if (!f) {
+    rules.excess_bag_fee_usd = null; rules.overweight_fee_usd = null; rules.oversize_fee_usd = null;
+    rules.excess_bag_fee_text = rules.overweight_fee_text = rules.oversize_fee_text = '未查到，请手动填写';
+    rules.notes = `东航暂未收录「中国大陆↔${MU_REGION_CN[other] || other}」费率，请手动填写`;
+    return rules;
+  }
+  // Free pieces: base economy count by region; premium/biz/first get more.
+  let freeN = MU_FREE_ECON[other] || 1;
+  if (superEcon) freeN = Math.max(freeN, 2);
+  if (biz) freeN = 2;
+  if (first) freeN = (other === 'EU') ? 3 : 2; // 欧洲线头等 3 件
+  rules.free_bags_per_pax = freeN;
+  rules.max_bags_per_pax = freeN + 5;
+  const zoneCn = `中国大陆↔${MU_REGION_CN[other]}`;
+  // Excess pieces: 1st vs 2nd+ (RMB). Store USD for the engine, RMB in the text.
+  rules.extra_first_fee_usd = muUsd(f.x1);
+  rules.extra_second_fee_usd = muUsd(f.xn);
+  rules.extra_rest_fee_usd = muUsd(f.xn);
+  rules.excess_bag_fee_usd = muUsd(f.xn);
+  rules.excess_bag_fee_text = `超件：第一件 RMB ${f.x1}（约 USD ${muUsd(f.x1)}）、第二件起 RMB ${f.xn}（约 USD ${muUsd(f.xn)}），每件 ≤23kg/158cm（${zoneCn}）`;
+  // Overweight 23–32kg econ (biz 32–45kg only on z1).
+  const owTiers = [{ maxKg: 32, fee: muUsd(f.ow) }];
+  if (biz && f.owBiz != null) owTiers.push({ maxKg: 45, fee: muUsd(f.owBiz) });
+  rules.overweight_fee_tiers = owTiers;
+  rules.overweight_fee_usd = muUsd(f.ow);
+  rules.overweight_fee_text = biz && f.owBiz != null
+    ? `超重：经济 23–32kg RMB ${f.ow}（约 USD ${muUsd(f.ow)}）、公务 32–45kg RMB ${f.owBiz}（约 USD ${muUsd(f.owBiz)}）（${zoneCn}）`
+    : `超重：23–32kg RMB ${f.ow}（约 USD ${muUsd(f.ow)}）/件（${zoneCn}；超 32kg 走货运）`;
+  // Oversize: engine applies ONE flat fee → use the 159–203cm tier; note the >203cm tier.
+  rules.oversize_fee_usd = muUsd(f.os1);
+  rules.oversize_fee_text = `超大：159–203cm RMB ${f.os1}（约 USD ${muUsd(f.os1)}）；>203cm RMB ${f.os2}（约 USD ${muUsd(f.os2)}，本工具按走货运处理，请人工加收）（${zoneCn}）`;
+  rules.notes = `东航国际计件制（官网费率表）：${zoneCn}、${first ? '头等' : biz ? '公务' : superEcon ? '超级经济' : '经济'}；免费 ${freeN} 件×${rules.standard_weight_kg}kg（三边和 ≤158cm）。超件第一件 RMB ${f.x1}/第二件起 RMB ${f.xn}；超重 23–32kg RMB ${f.ow}；超大 159–203cm RMB ${f.os1}、>203cm RMB ${f.os2}。超大+超重+超件累加计收。单件 ≤${rules.weight_limit_kg}kg。⚠ 费率以人民币计价（约 RMB ${MU_RMB_PER_USD}/USD 折算，仅供参考），实际以东航官网人民币金额及当地等值货币为准；免费件数随票价品牌（基础/标准/灵活经济舱）浮动，请核对机票。`;
+  return rules;
+}
+
 // ── Cebu Pacific (5J): low-cost carrier, no free allowance ────────────────
 // LCC model: every checked bag is a PREPAID 20kg piece; each piece can be
 // upgraded +4/+8/+12kg up to 32kg. Priced in PHP by haul bucket (domestic /
@@ -4944,6 +5083,17 @@ async function lookupRules(airlineCode, airlineName, cabin, origin, destination,
     const r = hxBuildRules(cabin, origin, destination);
     if (allowance.free !== 'auto') r.free_bags_per_pax = parseInt(allowance.free);
     if (allowance.weight !== 'auto') r.standard_weight_kg = parseFloat(allowance.weight);
+    return r;
+  }
+  // China Eastern: piece concept intl (China-centric zones) + weight concept
+  // domestic, hardcoded from CEAIR's official baggage pages (RMB, ref FX to USD).
+  if (airlineCode === 'MU') {
+    const r = muBuildRules(cabin, origin, destination);
+    if (allowance.free !== 'auto') { r.free_bags_per_pax = parseInt(allowance.free); r.max_bags_per_pax = (parseInt(allowance.free) || 0) + 5; }
+    if (allowance.weight !== 'auto') {
+      if (r.weight_concept_available) r.weight_concept_allowance_kg = parseFloat(allowance.weight);
+      else r.standard_weight_kg = parseFloat(allowance.weight);
+    }
     return r;
   }
   // Cebu Pacific: LCC, hardcoded official ONLINE rates (PHP→USD). No free
