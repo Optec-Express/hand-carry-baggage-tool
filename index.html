@@ -1734,7 +1734,7 @@ let noStacking = false;
 // displayed values are trusted (backend-hardcoded / official-scraped). Every
 // OTHER airline's numbers come from the live AI lookup and are shown in pink to
 // flag "verify this — it's an AI estimate, not confirmed".
-const HARDCODED_AIRLINES = new Set(['CX','KE','JL','QR','EK','LH','AA','UA','NH','TK','BR','OZ','HX','5J','MU','CA']);
+const HARDCODED_AIRLINES = new Set(['CX','KE','JL','QR','EK','LH','AA','UA','NH','TK','BR','OZ','HX','5J','MU','CA','CZ']);
 
 // One flyer realistically hauls ~100–150kg. When an airline publishes no
 // per-person total-weight cap, we fall back to this in packing AND surface it
@@ -4272,6 +4272,129 @@ function caBuildRules(cabin, origin, destination) {
   return rules;
 }
 
+// ─── China Southern (CZ / 南航) hardcoded fees ─────────────────────────────
+// Captured 2026-07 from CZ's OFFICIAL pages: 免费行李额 + 超额行李收费标准
+// (screenshots supplied by the user). China-centric like MU; CZ also publishes
+// official USD alongside RMB (used directly, no FX guessing). 超件 + 超尺寸 +
+// 超重 are three INDEPENDENT charges that STACK — no combined special value —
+// so the engine (which sums excess + overweight + oversize) models CZ exactly.
+//   • Domestic (CN内地↔CN内地): WEIGHT concept; excess fare-dependent → manual.
+//   • International: PIECE concept, anchored on 中国内地及港澳台. The non-China
+//     endpoint's region picks BOTH the free-piece count and the fee 行程组.
+// Free-piece grouping ≠ fee grouping: standard-economy free = 2 pieces to
+// 美洲/非洲/中东/澳新/日本, else 1. Fee 组一 = 中国↔美洲/非洲; 组二 = 中国↔欧洲/
+// 中东/澳新/日本; 组三 = 中国↔韩国/东南亚/南亚/中西亚 及未列明. Single piece
+// ≤32kg (涉及美国航线 ≤45kg), 三边和 ≤203cm (free 158cm; 159–203 oversize fee).
+const CZ_CN_MAINLAND = CA_CN_MAINLAND; // same mainland-China port set
+const CZ_US = new Set(['JFK','EWR','LGA','BOS','IAD','DCA','BWI','ORD','DFW','IAH','ATL','MIA','LAX','SFO','SJC','SEA','DEN','PHX','LAS','PHL','SAN','PDX','SLC','DTW','MSP','CLT','MCO','FLL','TPA','HNL','OGG','KOA','LIH']);
+const CZ_REGIONS = {
+  HKMOTW: ['HKG','MFM','TPE','TSA','KHH','RMQ','TNN','KNH'],
+  AMR: ['JFK','EWR','LGA','BOS','IAD','DCA','BWI','ORD','DFW','IAH','ATL','MIA','LAX','SFO','SJC','SEA','DEN','PHX','LAS','PHL','SAN','PDX','SLC','DTW','MSP','CLT','MCO','FLL','TPA','HNL','OGG','KOA','LIH','YYZ','YVR','YUL','YYC','YOW','YEG','YWG','YHZ','MEX','CUN','GDL','MTY','GRU','GIG','EZE','SCL','BOG','LIM','UIO','GYE','PTY','MVD','ASU','CCS','HAV','SJU','PUJ','SDQ','MBJ','NAS','AUA','CUR'],
+  AF:  ['JNB','CPT','DUR','NBO','MBA','DAR','EBB','KGL','ADD','LOS','ABV','ACC','ABJ','DKR','LAD','MPM','WDH','GBE','HRE','LUN','TNR','SEZ','MRU','CMN','RAK','TUN','ALG','MGQ','CAI','HRG','SSH','LXR','ASW','KRT'],
+  EU:  ['LHR','LGW','MAN','EDI','DUB','CDG','ORY','NCE','LYS','FRA','MUC','BER','DUS','HAM','STR','AMS','BRU','VIE','ZRH','GVA','MXP','FCO','VCE','NAP','MAD','BCN','LIS','OPO','CPH','ARN','GOT','OSL','HEL','PRG','BUD','WAW','KRK','OTP','SOF','ZAG','BEG','ATH','SKG','IST','SAW','ADB','AYT','ESB','GYD','TBS','EVN','SVO','DME','VKO','LED','KBP','MLA','KEF','TLL','RIX','VNO'],
+  ME:  ['DXB','AUH','SHJ','DOH','RUH','JED','DMM','MED','KWI','BAH','MCT','AMM','BEY','TLV','IKA','THR','MHD','BGW','BSR','EBL'],
+  SWP: ['SYD','MEL','BNE','PER','ADL','OOL','CNS','AKL','CHC','WLG','ZQN','NAN','POM','NOU','PPT'],
+  JP:  ['NRT','HND','KIX','ITM','NGO','NKM','CTS','FUK','OKA','KOJ','HIJ','SDJ','KMJ','NGS','OIT','TAK','MYJ','KMQ','FSZ','TOY','OKJ','HKD','KMI','ISG','MMY','KKJ','AOJ','AXT'],
+  KR:  ['ICN','GMP','PUS','CJU','TAE','KWJ','USN','FNJ'],
+  SEA: ['HAN','SGN','DAD','CXR','PQC','VII','HPH','BKK','DMK','HKT','CNX','CEI','HDY','USM','KBV','UTP','KUL','PEN','BKI','KCH','LGK','JHB','CGK','DPS','SUB','UPG','MNL','CEB','DVO','CRK','PNH','REP','VTE','LPQ','RGN','MDL','BWN','ROR','GUM','SPN'],
+  SAS: ['DEL','BOM','BLR','MAA','HYD','CCU','COK','TRV','AMD','GOI','DAC','KTM','CMB','MLE','ISB','KHI','LHE','KBL'],
+  CWA: ['ALA','NQZ','TAS','FRU','ASB','DYU','OSS'],
+  CN:  Array.from(CA_CN_MAINLAND),
+};
+const CZ_LOOKUP = (() => { const m = {}; for (const k in CZ_REGIONS) for (const a of CZ_REGIONS[k]) if (!(a in m)) m[a] = k; return m; })();
+function czRegionOf(iata) { return CZ_LOOKUP[(iata || '').trim().toUpperCase()] || null; }
+const CZ_REGION_CN = { CN:'中国内地', HKMOTW:'港澳台', AMR:'美洲', AF:'非洲', EU:'欧洲', ME:'中东', SWP:'西南太平洋', JP:'日本', KR:'韩国', SEA:'东南亚', SAS:'南亚', CWA:'中西亚' };
+// Per non-China destination region: fee 行程组 + standard-economy free pieces.
+const CZ_DEST = {
+  AMR: { grp: 'g1', free: 2 }, AF: { grp: 'g1', free: 2 },
+  ME: { grp: 'g2', free: 2 }, SWP: { grp: 'g2', free: 2 }, JP: { grp: 'g2', free: 2 }, EU: { grp: 'g2', free: 1 },
+  KR: { grp: 'g3', free: 1 }, SEA: { grp: 'g3', free: 1 }, SAS: { grp: 'g3', free: 1 }, CWA: { grp: 'g3', free: 1 }, HKMOTW: { grp: 'g3', free: 1 },
+};
+// Official USD figures (CZ publishes USD directly). x1/xn = 超件 第1件 / 第2件及以上;
+// os = 超尺寸 159–203cm; ow = 超重 tiers (23–28 / 28–32 / 32–45kg，32–45 仅涉美线).
+const CZ_FEE = {
+  g1: { x1: 180, xn: 285, os: 145, ow: [{ maxKg: 28, fee: 75 }, { maxKg: 32, fee: 145 }, { maxKg: 45, fee: 420 }], rmb: { x1: 1380, xn: 2000, os: 1000 }, cn: '行程组一(中国↔美洲/非洲)' },
+  g2: { x1: 160, xn: 285, os: 145, ow: [{ maxKg: 28, fee: 75 }, { maxKg: 32, fee: 145 }], rmb: { x1: 1100, xn: 2000, os: 1000 }, cn: '行程组二(中国↔欧洲/中东/澳新/日本)' },
+  g3: { x1: 125, xn: 200, os: 145, ow: [{ maxKg: 28, fee: 60 }, { maxKg: 32, fee: 130 }], rmb: { x1: 880, xn: 1430, os: 1000 }, cn: '行程组三(中国↔韩国/东南亚/南亚/中西亚)' },
+};
+
+function czBuildRules(cabin, origin, destination) {
+  const biz = (cabin === '商务舱' || cabin === '头等舱');
+  const first = (cabin === '头等舱');
+  const superEcon = (cabin === '超级经济舱');
+  const oR = czRegionOf(origin), dR = czRegionOf(destination);
+  const rules = {
+    airline_code: 'CZ', airline_name_cn: '中国南方航空', cabin_class: cabin,
+    length_limit_cm: null, width_limit_cm: null, height_limit_cm: null,
+    max_total_weight_kg: 0,
+    weight_concept_available: false, weight_concept_allowance_kg: null,
+    weight_concept_excess_fee_usd_per_kg: null, weight_concept_text: '',
+    piece_concept_available: true,
+    weight_limit_kg: 32,
+    standard_weight_kg: (first || biz) ? 32 : 23,
+    standard_linear_cm: 158, linear_limit_cm: 203,
+    free_bags_per_pax: 2, max_bags_per_pax: 7,
+  };
+  if (!oR || !dR) {
+    rules.excess_bag_fee_usd = null; rules.overweight_fee_usd = null; rules.oversize_fee_usd = null;
+    rules.excess_bag_fee_text = rules.overweight_fee_text = rules.oversize_fee_text = '未查到，请手动填写';
+    rules.notes = '南航按行程组（相对中国内地及港澳台）计费，无法识别该港口所属区域，请手动填写费率';
+    return rules;
+  }
+  // Domestic mainland → weight concept (HK/MO/TW are piece-concept, not domestic).
+  if (oR === 'CN' && dR === 'CN') {
+    rules.piece_concept_available = false;
+    rules.weight_concept_available = true;
+    rules.weight_concept_allowance_kg = first ? 40 : (biz ? 30 : 20);
+    rules.weight_concept_excess_fee_usd_per_kg = null;
+    rules.weight_concept_text = '国内逾重费依当日票价核算（官网未公布固定 per-kg 值）';
+    rules.weight_limit_kg = 50; rules.standard_weight_kg = 50; rules.standard_linear_cm = 200; rules.linear_limit_cm = 200;
+    rules.excess_bag_fee_usd = null; rules.overweight_fee_usd = null; rules.oversize_fee_usd = null;
+    rules.excess_bag_fee_text = rules.overweight_fee_text = rules.oversize_fee_text = '国内计重制，按公斤计';
+    rules.notes = `南航国内航线计重制：免费额度 ${rules.weight_concept_allowance_kg}kg（${first ? '头等' : biz ? '公务' : '明珠/经济'}），单件 ≤50kg、体积 ≤40×60×100cm。国内逾重费依当日票价核算，无法预置，请人工核对。⚠ 以南航官网/值机柜台为准。`;
+    return rules;
+  }
+  // International — anchored on 中国内地及港澳台. Pick the non-anchor endpoint.
+  const oAnchor = (oR === 'CN' || oR === 'HKMOTW'), dAnchor = (dR === 'CN' || dR === 'HKMOTW');
+  let other = null;
+  if (oAnchor && dAnchor) other = 'HKMOTW';   // 中国内地↔港澳台 / 港澳台内
+  else if (oAnchor) other = dR;
+  else if (dAnchor) other = oR;
+  const dest = other ? CZ_DEST[other] : null;
+  if (!dest) {
+    rules.excess_bag_fee_usd = null; rules.overweight_fee_usd = null; rules.oversize_fee_usd = null;
+    rules.excess_bag_fee_text = rules.overweight_fee_text = rules.oversize_fee_text = '未查到，请手动填写';
+    rules.notes = '南航费率以「中国内地及港澳台 ↔ 目的地」界定，该航线两端均非中国（或经中国中转的第三国联程），请手动填写费率';
+    return rules;
+  }
+  const f = CZ_FEE[dest.grp];
+  const isUS = CZ_US.has((origin || '').toUpperCase()) || CZ_US.has((destination || '').toUpperCase());
+  const routeCn = `中国↔${CZ_REGION_CN[other]}`;
+  // Free pieces: econ/明珠 by destination; 公务 2; 头等 3.
+  let freeN = first ? 3 : biz ? 2 : dest.free;
+  rules.free_bags_per_pax = freeN;
+  rules.max_bags_per_pax = freeN + 5;
+  // US routes accept a heavier single piece (45kg) and carry the 32–45kg tier.
+  let owTiers = f.ow;
+  if (isUS) { rules.weight_limit_kg = 45; }
+  else { owTiers = f.ow.filter(t => t.maxKg <= 32); rules.weight_limit_kg = 32; }
+  rules.extra_first_fee_usd = f.x1;
+  rules.extra_second_fee_usd = f.xn;
+  rules.extra_rest_fee_usd = f.xn;
+  rules.excess_bag_fee_usd = f.x1;
+  rules.excess_bag_fee_text = `超件：第1件 USD ${f.x1}（¥${f.rmb.x1}）、第2件起 USD ${f.xn}（¥${f.rmb.xn}），每件 ≤23kg/158cm（${f.cn}）`;
+  rules.overweight_fee_tiers = owTiers;
+  rules.overweight_fee_usd = owTiers[0].fee;
+  rules.overweight_fee_text = `超重：` + owTiers.map(t => {
+    const lo = t.maxKg === 28 ? '23–28' : t.maxKg === 32 ? '28–32' : '32–45';
+    return `${lo}kg USD ${t.fee}`;
+  }).join(' / ') + `（每件，${f.cn}${isUS ? '，涉美线单件≤45kg' : '，超 32kg 走货运'}）`;
+  rules.oversize_fee_usd = f.os;
+  rules.oversize_fee_text = `超尺寸：159–203cm USD ${f.os}/件（¥${f.rmb.os}；>203cm 走货运）（${f.cn}）`;
+  rules.notes = `南航国际计件制（官网费率表，含官方美元价）：${f.cn}、${first ? '头等' : biz ? '公务' : superEcon ? '明珠经济' : '经济'}；免费 ${freeN} 件×${rules.standard_weight_kg}kg（三边和 ≤158cm）。超件 USD ${f.x1}/${f.xn}（第1/第2+件）；超重 ${owTiers.map(t => 'USD ' + t.fee).join('/')}；超尺寸 159–203cm USD ${f.os}。超件+超重+超尺寸叠加计收。单件 ≤${rules.weight_limit_kg}kg、三边和 ≤203cm。⚠ 标准经济舱免费 ${dest.free} 件（优享/灵活经济舱多为 2 件、精省经济舱更少），随票价品牌浮动，请核对机票；以南航官网为准。`;
+  return rules;
+}
+
 // ── Cebu Pacific (5J): low-cost carrier, no free allowance ────────────────
 // LCC model: every checked bag is a PREPAID 20kg piece; each piece can be
 // upgraded +4/+8/+12kg up to 32kg. Priced in PHP by haul bucket (domestic /
@@ -5229,6 +5352,17 @@ async function lookupRules(airlineCode, airlineName, cabin, origin, destination,
   // concept domestic, hardcoded from CA's official 20220610 fee tables.
   if (airlineCode === 'CA') {
     const r = caBuildRules(cabin, origin, destination);
+    if (allowance.free !== 'auto') { r.free_bags_per_pax = parseInt(allowance.free); r.max_bags_per_pax = (parseInt(allowance.free) || 0) + 5; }
+    if (allowance.weight !== 'auto') {
+      if (r.weight_concept_available) r.weight_concept_allowance_kg = parseFloat(allowance.weight);
+      else r.standard_weight_kg = parseFloat(allowance.weight);
+    }
+    return r;
+  }
+  // China Southern: piece concept intl (China-anchored 行程组, official USD) +
+  // weight concept domestic, hardcoded from CZ's official fee tables.
+  if (airlineCode === 'CZ') {
+    const r = czBuildRules(cabin, origin, destination);
     if (allowance.free !== 'auto') { r.free_bags_per_pax = parseInt(allowance.free); r.max_bags_per_pax = (parseInt(allowance.free) || 0) + 5; }
     if (allowance.weight !== 'auto') {
       if (r.weight_concept_available) r.weight_concept_allowance_kg = parseFloat(allowance.weight);
