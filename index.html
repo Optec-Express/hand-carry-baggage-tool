@@ -1734,7 +1734,7 @@ let noStacking = false;
 // displayed values are trusted (backend-hardcoded / official-scraped). Every
 // OTHER airline's numbers come from the live AI lookup and are shown in pink to
 // flag "verify this — it's an AI estimate, not confirmed".
-const HARDCODED_AIRLINES = new Set(['CX','KE','JL','QR','EK','LH','AA','UA','NH','TK','BR','OZ','HX','5J','MU']);
+const HARDCODED_AIRLINES = new Set(['CX','KE','JL','QR','EK','LH','AA','UA','NH','TK','BR','OZ','HX','5J','MU','CA']);
 
 // One flyer realistically hauls ~100–150kg. When an airline publishes no
 // per-person total-weight cap, we fall back to this in packing AND surface it
@@ -4143,6 +4143,135 @@ function muBuildRules(cabin, origin, destination) {
   return rules;
 }
 
+// ─── Air China (CA / 国航) hardcoded fees ──────────────────────────────────
+// Captured 2026-07 from CA's OFFICIAL pages: 免费托运行李额 + 超限额收费标准一览表
+// (20220610 版) + IATA 世界区域划分 (screenshots supplied by the user). Unlike MU,
+// CA's fee zones are keyed by IATA-AREA PAIR (TC1/TC2/TC3 sub-regions), NOT by
+// "relative to China" — China sits in IATA-TC3「亚洲」. CA also publishes official
+// USD alongside RMB, so no FX guessing: the USD figures below are CA's own.
+//   • Domestic (CN↔CN mainland): WEIGHT concept; excess = fare-dependent, left manual.
+//   • International: PIECE concept. Two independent charges that STACK:
+//       – 超限额附加费 (超重 23–28 / 28–32kg，及/或 超尺寸 158–203cm) per piece;
+//       – 额外行李费 (超出免费件数的 第1 / 第2 / 第3+ 件).
+//     CA lists a distinct COMBINED "超重且超尺寸" value; the engine can only add
+//     超重+超尺寸, so a piece that is BOTH is billed additively (usually a bit off
+//     the official combined figure) — the official combined RMB/USD is in notes.
+// Standard economy = 1 free piece on every intl route (无忧/甄选经济舱 = 2, varies
+// by fare brand → editable). Single piece ≤32kg & 三边和 ≤203cm (free size 158cm).
+// Region buckets follow CA's own IATA 世界区域划分 (Egypt/Sudan sit in 中东 = ME).
+const CA_CN_MAINLAND = new Set(['PEK','PKX','PVG','SHA','CAN','SZX','CTU','TFU','CKG','HGH','XIY','NKG','WUH','CSX','KMG','XMN','TSN','HAK','SYX','CGO','FOC','TAO','DLC','SHE','HRB','URC','KWE','NNG','KWL','LHW','INC','TYN','HET','CGQ','SJW','JJN','WNZ','NGB','HFE','JHG','LJG','YNT','WEH','ZUH','SWA','HIA','CZX','NTG','WUX','LXA','KHN','TNA','KWE']);
+const CA_REGIONS = {
+  US:  ['JFK','EWR','LGA','BOS','IAD','DCA','BWI','ORD','DFW','IAH','ATL','MIA','LAX','SFO','SJC','SEA','DEN','PHX','LAS','PHL','SAN','PDX','SLC','DTW','MSP','CLT','MCO','FLL','TPA','HNL','OGG','KOA','LIH'],
+  CAN: ['YYZ','YVR','YUL','YYC','YOW','YEG','YWG','YHZ'],
+  AMR: ['MEX','CUN','GDL','MTY','GRU','GIG','EZE','SCL','BOG','LIM','UIO','GYE','PTY','MVD','ASU','CCS','HAV','SJU','PUJ','SDQ','MBJ','NAS','AUA','CUR'],
+  EU:  ['LHR','LGW','MAN','EDI','DUB','CDG','ORY','NCE','LYS','FRA','MUC','BER','DUS','HAM','STR','AMS','BRU','VIE','ZRH','GVA','MXP','FCO','VCE','NAP','MAD','BCN','LIS','OPO','CPH','ARN','GOT','OSL','HEL','PRG','BUD','WAW','KRK','OTP','SOF','ZAG','BEG','ATH','SKG','IST','SAW','ADB','AYT','ESB','GYD','TBS','EVN','SVO','DME','VKO','LED','KBP','MLA','KEF','TLL','RIX','VNO'],
+  ME:  ['DXB','AUH','SHJ','DOH','RUH','JED','DMM','MED','KWI','BAH','MCT','AMM','BEY','TLV','IKA','THR','MHD','BGW','BSR','EBL','CAI','HRG','SSH','LXR','ASW','KRT'],
+  AF:  ['JNB','CPT','DUR','NBO','MBA','DAR','EBB','KGL','ADD','LOS','ABV','ACC','ABJ','DKR','LAD','MPM','WDH','GBE','HRE','LUN','TNR','SEZ','MRU','CMN','RAK','TUN','ALG','MGQ'],
+  JP:  ['NRT','HND','KIX','ITM','NGO','NKM','CTS','FUK','OKA','KOJ','HIJ','SDJ','KMJ','NGS','OIT','TAK','MYJ','KMQ','FSZ','TOY','OKJ','HKD','KMI','ISG','MMY','KKJ','AOJ','AXT'],
+  SWP: ['SYD','MEL','BNE','PER','ADL','OOL','CNS','AKL','CHC','WLG','ZQN','NAN','POM','NOU','PPT'],
+  AS:  ['PEK','PKX','PVG','SHA','CAN','SZX','CTU','TFU','CKG','HGH','XIY','NKG','WUH','CSX','KMG','XMN','TSN','HAK','SYX','CGO','FOC','TAO','DLC','SHE','HRB','URC','KWE','NNG','KWL','LHW','INC','TYN','HET','CGQ','SJW','JJN','WNZ','NGB','HFE','JHG','LJG','YNT','WEH','ZUH','SWA','HIA','CZX','NTG','WUX','LXA','KHN','TNA',
+        'HKG','MFM','TPE','TSA','KHH','RMQ','TNN','KNH',
+        'ICN','GMP','PUS','CJU','TAE','KWJ','USN','FNJ',
+        'HAN','SGN','DAD','CXR','PQC','VII','HPH','BKK','DMK','HKT','CNX','CEI','HDY','USM','KBV','UTP','KUL','PEN','BKI','KCH','LGK','JHB','CGK','DPS','SUB','UPG','MNL','CEB','DVO','CRK','PNH','REP','VTE','LPQ','RGN','MDL','BWN','ROR','GUM','SPN',
+        'DEL','BOM','BLR','MAA','HYD','CCU','COK','TRV','AMD','GOI','DAC','KTM','CMB','MLE','ISB','KHI','LHE','KBL',
+        'ALA','NQZ','TAS','FRU','ASB','DYU','OSS','GYD',
+        'VVO','KHV','IKT','UUD','YKS','ULN'],
+};
+const CA_LOOKUP = (() => { const m = {}; for (const k in CA_REGIONS) for (const a of CA_REGIONS[k]) if (!(a in m)) m[a] = k; return m; })();
+// AS wins over the mainland-China duplicate keys above (US/EU listed first, AS last;
+// the `if (!(a in m))` keeps the FIRST bucket, so China ports resolve to AS — they
+// only appear in AS). GYD appears in both EU and AS → EU wins (Baku = TC2). Fine.
+function caRegionOf(iata) { return CA_LOOKUP[(iata || '').trim().toUpperCase()] || null; }
+const CA_REGION_CN = { US:'美国', CAN:'加拿大', AMR:'美洲(除美加)/加勒比', EU:'欧洲', ME:'中东', AF:'非洲', JP:'日本', SWP:'西南太平洋', AS:'亚洲(除日本)' };
+// Fee zone from the IATA-area pair (official 区域一~五 definitions).
+function caFeeZone(a, b) {
+  if (!a || !b) return null;
+  const set = new Set([a, b]);
+  if (set.has('US')) return 'z4';            // 美国(含夏威夷) 与 各地
+  if (set.has('CAN')) return 'z3';           // 加拿大 与 各地
+  if (set.has('AMR')) return (a === 'AMR' && b === 'AMR') ? 'z5' : 'z1'; // 美洲(除美加)/加勒比 与 长途
+  const G1 = ['EU', 'ME'], G2 = ['AF', 'AS', 'SWP'];
+  if ((G1.includes(a) && G2.includes(b)) || (G1.includes(b) && G2.includes(a))) return 'z2';
+  if (set.has('JP') && set.has('SWP')) return 'z2';
+  const H1 = ['JP', 'SWP'], H2 = ['AS', 'AF'];
+  if ((H1.includes(a) && H2.includes(b)) || (H1.includes(b) && H2.includes(a))) return 'z2';
+  return 'z5';                               // 欧↔中东、非↔亚、亚洲内、未列明
+}
+// Official USD figures (CA publishes USD directly). sur = 超重附加费 tiers by piece
+// weight; os = 超尺寸(158–203cm)附加费; both = 超重且超尺寸 combined official value
+// (engine adds sur+os instead — kept here for notes); x1/x2/x3 = 额外行李 第1/2/3+ 件.
+const CA_FEE_ZONES = {
+  z1: { sur: [{ maxKg: 28, fee: 60 }, { maxKg: 32, fee: 150 }], os: 150, both: 220, x1: 220, x2: 310, x3: 460, rmb: { x1: 1400, x2: 2000, x3: 3000, os: 980, both: 1400 }, cn: '区域一(美洲除美加/加勒比 与 欧/非/中东/亚/西南太平洋)' },
+  z2: { sur: [{ maxKg: 28, fee: 40 }, { maxKg: 32, fee: 100 }], os: 100, both: 160, x1: 160, x2: 160, x3: 230, rmb: { x1: 1100, x2: 1100, x3: 1590, os: 690, both: 1100 }, cn: '区域二(欧/中东 与 非/亚/西南太平洋；日本相关)' },
+  z3: { sur: [{ maxKg: 32, fee: 75 }], os: 75, both: 75, x1: 170, x2: 170, x3: 230, rmb: { x1: 1170, x2: 1170, x3: 1590, os: 520, both: 520 }, cn: '区域三(加拿大 与 各地)' },
+  z4: { sur: [{ maxKg: 28, fee: 100 }, { maxKg: 32, fee: 150 }], os: 150, both: 300, x1: 200, x2: 200, x3: 230, rmb: { x1: 1380, x2: 1380, x3: 1590, os: 1040, both: 2050 }, cn: '区域四(美国含夏威夷 与 各地)' },
+  z5: { sur: [{ maxKg: 28, fee: 30 }, { maxKg: 32, fee: 75 }], os: 75, both: 120, x1: 120, x2: 160, x3: 230, rmb: { x1: 830, x2: 1100, x3: 1590, os: 520, both: 830 }, cn: '区域五(亚洲内/欧↔中东/非↔亚等)' },
+};
+
+function caBuildRules(cabin, origin, destination) {
+  const biz = (cabin === '商务舱' || cabin === '头等舱');
+  const first = (cabin === '头等舱');
+  const superEcon = (cabin === '超级经济舱');
+  const o = caRegionOf(origin), d = caRegionOf(destination);
+  const rules = {
+    airline_code: 'CA', airline_name_cn: '中国国际航空', cabin_class: cabin,
+    length_limit_cm: null, width_limit_cm: null, height_limit_cm: null,
+    max_total_weight_kg: 0,
+    weight_concept_available: false, weight_concept_allowance_kg: null,
+    weight_concept_excess_fee_usd_per_kg: null, weight_concept_text: '',
+    piece_concept_available: true,
+    weight_limit_kg: 32,
+    standard_weight_kg: biz ? 32 : 23,
+    standard_linear_cm: 158, linear_limit_cm: 203,
+    free_bags_per_pax: biz ? 2 : (superEcon ? 2 : 1), max_bags_per_pax: (biz || superEcon) ? 7 : 6,
+  };
+  if (!o || !d) {
+    rules.excess_bag_fee_usd = null; rules.overweight_fee_usd = null; rules.oversize_fee_usd = null;
+    rules.excess_bag_fee_text = rules.overweight_fee_text = rules.oversize_fee_text = '未查到，请手动填写';
+    rules.notes = '国航按 IATA 区域航线计费，无法识别该港口所属区域，请手动填写费率';
+    return rules;
+  }
+  // Domestic mainland (piece-count irrelevant; billed by weight). HK/MO/TW are piece-concept, NOT domestic.
+  if (CA_CN_MAINLAND.has((origin || '').toUpperCase()) && CA_CN_MAINLAND.has((destination || '').toUpperCase())) {
+    rules.piece_concept_available = false;
+    rules.weight_concept_available = true;
+    rules.weight_concept_allowance_kg = first ? 40 : (biz ? 30 : 20);
+    rules.weight_concept_excess_fee_usd_per_kg = null; // 依当日票价，无法预置
+    rules.weight_concept_text = '国内逾重费依当日票价核算（官网未公布固定 per-kg 值）';
+    rules.weight_limit_kg = 32; rules.standard_weight_kg = 32; rules.standard_linear_cm = 200; rules.linear_limit_cm = 203;
+    rules.excess_bag_fee_usd = null; rules.overweight_fee_usd = null; rules.oversize_fee_usd = null;
+    rules.excess_bag_fee_text = rules.overweight_fee_text = rules.oversize_fee_text = '国内计重制，按公斤计';
+    rules.notes = `国航国内航线计重制：免费额度 ${rules.weight_concept_allowance_kg}kg（${first ? '头等' : biz ? '公务' : '悦享/经济'}），单件 2–32kg、免费尺寸 100×60×40cm、最大三边和 203cm。国内逾重费依当日票价核算，无法预置，请人工核对。⚠ 以国航官网/值机柜台为准。`;
+    return rules;
+  }
+  const zoneKey = caFeeZone(o, d);
+  const f = CA_FEE_ZONES[zoneKey];
+  if (!f) {
+    rules.excess_bag_fee_usd = null; rules.overweight_fee_usd = null; rules.oversize_fee_usd = null;
+    rules.excess_bag_fee_text = rules.overweight_fee_text = rules.oversize_fee_text = '未查到，请手动填写';
+    rules.notes = `国航暂未收录「${CA_REGION_CN[o]}↔${CA_REGION_CN[d]}」区域费率，请手动填写`;
+    return rules;
+  }
+  const routeCn = `${CA_REGION_CN[o]}↔${CA_REGION_CN[d]}`;
+  // Extra-piece fees (official USD): 1st / 2nd / 3rd+.
+  rules.extra_first_fee_usd = f.x1;
+  rules.extra_second_fee_usd = f.x2;
+  rules.extra_rest_fee_usd = f.x3;
+  rules.excess_bag_fee_usd = f.x1;
+  rules.excess_bag_fee_text = `额外行李：第1件 USD ${f.x1}（¥${f.rmb.x1}）、第2件 USD ${f.x2}（¥${f.rmb.x2}）、第3件起 USD ${f.x3}（¥${f.rmb.x3}）（${f.cn}）`;
+  // Overweight surcharge tiers (per piece, official USD). biz(32kg free) never triggers.
+  rules.overweight_fee_tiers = f.sur;
+  rules.overweight_fee_usd = f.sur[0].fee;
+  rules.overweight_fee_text = f.sur.length > 1
+    ? `超重附加费：23–28kg USD ${f.sur[0].fee} / 28–32kg USD ${f.sur[1].fee}（每件，${f.cn}）`
+    : `超重附加费：23–32kg USD ${f.sur[0].fee}/件（${f.cn}）`;
+  // Oversize surcharge 158–203cm (official USD). >203cm 不可作为行李托运。
+  rules.oversize_fee_usd = f.os;
+  rules.oversize_fee_text = `超尺寸附加费：158–203cm USD ${f.os}/件（>203cm 不可托运，走货运）；官方「超重且超尺寸」合并价 USD ${f.both}（¥${f.rmb.both}），本工具按超重+超尺寸叠加估算`;
+  rules.notes = `国航国际计件制（官网 20220610 费率表，含官方美元价）：${f.cn}、${first ? '头等' : biz ? '公务' : superEcon ? '超级经济' : '经济'}；免费 ${rules.free_bags_per_pax} 件×${rules.standard_weight_kg}kg（三边和 ≤158cm）。额外行李 USD ${f.x1}/${f.x2}/${f.x3}（第1/2/3+件）；超重附加 ${f.sur.map(t => 'USD ' + t.fee).join('/')}（23–28/28–32kg）；超尺寸附加 158–203cm USD ${f.os}。超重/超尺寸附加费与额外行李费叠加计收。单件 2–32kg、三边和 ≤203cm。⚠ 标准经济舱免费 1 件，无忧/甄选经济舱为 2 件、随票价品牌浮动，请核对机票；官方"超重且超尺寸"有独立合并价（见上），本工具按叠加估算可能略有出入；以国航官网为准。`;
+  return rules;
+}
+
 // ── Cebu Pacific (5J): low-cost carrier, no free allowance ────────────────
 // LCC model: every checked bag is a PREPAID 20kg piece; each piece can be
 // upgraded +4/+8/+12kg up to 32kg. Priced in PHP by haul bucket (domestic /
@@ -5089,6 +5218,17 @@ async function lookupRules(airlineCode, airlineName, cabin, origin, destination,
   // domestic, hardcoded from CEAIR's official baggage pages (RMB, ref FX to USD).
   if (airlineCode === 'MU') {
     const r = muBuildRules(cabin, origin, destination);
+    if (allowance.free !== 'auto') { r.free_bags_per_pax = parseInt(allowance.free); r.max_bags_per_pax = (parseInt(allowance.free) || 0) + 5; }
+    if (allowance.weight !== 'auto') {
+      if (r.weight_concept_available) r.weight_concept_allowance_kg = parseFloat(allowance.weight);
+      else r.standard_weight_kg = parseFloat(allowance.weight);
+    }
+    return r;
+  }
+  // Air China: piece concept intl (IATA-area-pair zones, official USD) + weight
+  // concept domestic, hardcoded from CA's official 20220610 fee tables.
+  if (airlineCode === 'CA') {
+    const r = caBuildRules(cabin, origin, destination);
     if (allowance.free !== 'auto') { r.free_bags_per_pax = parseInt(allowance.free); r.max_bags_per_pax = (parseInt(allowance.free) || 0) + 5; }
     if (allowance.weight !== 'auto') {
       if (r.weight_concept_available) r.weight_concept_allowance_kg = parseFloat(allowance.weight);
