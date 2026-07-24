@@ -1734,7 +1734,7 @@ let noStacking = false;
 // displayed values are trusted (backend-hardcoded / official-scraped). Every
 // OTHER airline's numbers come from the live AI lookup and are shown in pink to
 // flag "verify this — it's an AI estimate, not confirmed".
-const HARDCODED_AIRLINES = new Set(['CX','KE','JL','QR','EK','LH','AA','UA','NH','TK','BR','OZ','HX','5J','MU','CA','CZ','CI']);
+const HARDCODED_AIRLINES = new Set(['CX','KE','JL','QR','EK','LH','AA','UA','NH','TK','BR','OZ','HX','5J','MU','CA','CZ','CI','PR']);
 
 // One flyer realistically hauls ~100–150kg. When an airline publishes no
 // per-person total-weight cap, we fall back to this in packing AND surface it
@@ -4483,6 +4483,110 @@ function ciBuildRules(cabin, origin, destination) {
   return rules;
 }
 
+// ─── Philippine Airlines (PR / 菲航) hardcoded fees ────────────────────────
+// Captured 2026-07 from PR's OFFICIAL 行李额费用 pages (screenshots supplied by
+// the user). Manila (Philippines) hub, DUAL system:
+//   • 亚洲 + 太平洋 routes → WEIGHT concept (per-kg). Manila-departure figures are
+//     official USD; the to-Manila figures are in local currency but convert to
+//     ≈ the same USD, so we use the USD per-kg rate for both directions.
+//   • 中东 / 帕劳 / 日本 / 美国 / 加拿大 / 关岛塞班 → PIECE concept (per-piece USD).
+// The FBA is HEAVILY fare-brand + date dependent (SuperSaver/Saver/Value/Flex);
+// we default to a representative standard-economy figure and flag it editable.
+// Single piece ≤32kg (>32 须重新打包/走货运), free size 三边和 ≤158cm.
+const PR_PH = new Set(['MNL','CEB','DVO','CRK','KLO','ILO','PPS','TAG','BCD','CGY','DGT','GES','TAC','ZAM','MPH','USU','LAO','TUG','BXU','DPL','CYZ','SFS','WNP','CBO','JOL','TWT']);
+// Weight-concept destinations → per-kg USD (Manila-departure official rate).
+const PR_WEIGHT_KG = {
+  CAN: 8, JJN: 8, XMN: 8, PEK: 10, SHA: 10, PVG: 10, CTU: 10, HGH: 10, NKG: 10, FOC: 10, SZX: 10, TAO: 10,
+  HKG: 13, MFM: 10, TPE: 10, TSA: 10, KHH: 10,
+  ICN: 12, GMP: 12, PUS: 12,
+  BKK: 10, DMK: 10, HKT: 10, DPS: 10, CGK: 10, SUB: 10, MDC: 8, HAN: 10, SGN: 10, DAD: 10, KUL: 10, BKI: 8, PEN: 10, SIN: 10, PNH: 10, REP: 10, RGN: 10, VTE: 10,
+  SYD: 24, MEL: 24, BNE: 24, PER: 24, POM: 16,
+};
+const PR_WEIGHT_CN = { CN: '中国', HK: '港澳', TW: '台湾', KR: '韩国', SEA: '东南亚', PAC: '澳洲/太平洋' };
+// Piece-concept destinations → { base per-piece USD, osBig for >203cm/超大且超重 }.
+const PR_PIECE = {
+  ME:    { base: 160, osBig: 320, cn: '中东', ports: ['DXB', 'DOH', 'DMM', 'RUH', 'AUH', 'KWI', 'BAH', 'MCT'] },
+  PALAU: { base: 225, osBig: 675, cn: '帕劳(科罗尔)', ports: ['ROR'] },
+  JP:    { base: 120, osBig: 300, cn: '日本', ports: ['NRT', 'HND', 'NGO', 'NKM', 'KIX', 'ITM', 'FUK', 'CTS', 'OKA', 'KKJ'] },
+  US:    { base: 250, osBig: 750, cn: '美国', ports: ['SFO', 'LAX', 'HNL', 'SEA', 'JFK', 'EWR', 'ORD', 'GUM_NO'] },
+  CA:    { base: 250, osBig: 750, cn: '加拿大', ports: ['YVR', 'YYZ', 'YUL'] },
+  GUAM:  { base: 225, osBig: 675, cn: '关岛/塞班', ports: ['GUM', 'SPN'] },
+};
+const PR_PIECE_LOOKUP = (() => { const m = {}; for (const k in PR_PIECE) for (const a of PR_PIECE[k].ports) if (a !== 'GUM_NO') m[a] = k; return m; })();
+function prWeightRegionCn(dest) {
+  if (['CAN', 'JJN', 'XMN', 'PEK', 'SHA', 'PVG', 'CTU', 'HGH', 'NKG', 'FOC', 'SZX', 'TAO'].includes(dest)) return '中国';
+  if (['HKG', 'MFM'].includes(dest)) return '港澳';
+  if (['TPE', 'TSA', 'KHH'].includes(dest)) return '台湾';
+  if (['ICN', 'GMP', 'PUS'].includes(dest)) return '韩国';
+  if (['SYD', 'MEL', 'BNE', 'PER', 'POM'].includes(dest)) return '澳洲/太平洋';
+  return '东南亚';
+}
+
+function prBuildRules(cabin, origin, destination) {
+  const biz = (cabin === '商务舱' || cabin === '头等舱');
+  const superEcon = (cabin === '超级经济舱');
+  const O = (origin || '').trim().toUpperCase(), D = (destination || '').trim().toUpperCase();
+  const rules = {
+    airline_code: 'PR', airline_name_cn: '菲律宾航空', cabin_class: cabin,
+    length_limit_cm: null, width_limit_cm: null, height_limit_cm: null,
+    max_total_weight_kg: 0,
+    weight_concept_available: false, weight_concept_allowance_kg: null,
+    weight_concept_excess_fee_usd_per_kg: null, weight_concept_text: '',
+    piece_concept_available: true,
+    weight_limit_kg: 32,
+    standard_weight_kg: biz ? 32 : superEcon ? 25 : 23,
+    standard_linear_cm: 158, linear_limit_cm: 203,
+    free_bags_per_pax: 2, max_bags_per_pax: 7,
+  };
+  const oPH = PR_PH.has(O), dPH = PR_PH.has(D);
+  let other = null;
+  if (oPH && !dPH) other = D;
+  else if (dPH && !oPH) other = O;
+  const manual = (note) => {
+    rules.excess_bag_fee_usd = null; rules.overweight_fee_usd = null; rules.oversize_fee_usd = null;
+    rules.excess_bag_fee_text = rules.overweight_fee_text = rules.oversize_fee_text = '未查到，请手动填写';
+    rules.notes = note; return rules;
+  };
+  if (oPH && dPH) return manual('菲航菲律宾境内航线（计重制、逾重依票价），本工具未收录，请手动填写费率');
+  if (!other) return manual('菲航费率以「菲律宾 ↔ 目的地」界定，无法识别该航线（两端均非菲律宾），请手动填写费率');
+  // Weight-concept routes (Asia + Pacific).
+  if (PR_WEIGHT_KG[other] != null) {
+    const rate = PR_WEIGHT_KG[other];
+    const regionCn = prWeightRegionCn(other);
+    const koreaFba = ['ICN', 'GMP', 'PUS'].includes(other);
+    const fba = biz ? 40 : (koreaFba ? 20 : 30) + (superEcon ? 5 : 0);
+    rules.piece_concept_available = false;
+    rules.weight_concept_available = true;
+    rules.weight_concept_allowance_kg = fba;
+    rules.weight_concept_excess_fee_usd_per_kg = rate;
+    rules.weight_concept_text = `每公斤约 USD ${rate}（菲律宾↔${regionCn}，马尼拉离港官方美元价；到港按当地货币约等值）`;
+    rules.standard_weight_kg = 32; rules.free_bags_per_pax = 2; rules.max_bags_per_pax = 10; rules.max_bags_official = false;
+    rules.excess_bag_fee_usd = null; rules.excess_bag_fee_text = '按公斤计（见计重制）';
+    rules.overweight_fee_usd = 0; rules.overweight_fee_text = '按公斤计（单件 >32kg 须重新打包）';
+    rules.oversize_fee_usd = null; rules.oversize_fee_text = '单件 >158cm 按超大处理另收，官网未公布每公斤方案，请人工核实';
+    rules.notes = `菲航计重制：菲律宾↔${regionCn}，超出免费额度部分每公斤约 USD ${rate}；免费额度 ${fba}kg（${biz ? '公务' : superEcon ? '超经' : '经济'}默认，随票价品牌 SuperSaver/Saver/Value/Flex 浮动，请按实际机票在「机票含kg」改）。单件 ≤32kg、免费三边和 ≤158cm。⚠ 逾重费按马尼拉离港美元价，实际以当地货币结算、以菲航官网为准。`;
+    return rules;
+  }
+  // Piece-concept routes (Middle East / Palau / Japan / US / Canada / Guam).
+  const pk = PR_PIECE_LOOKUP[other];
+  if (pk) {
+    const f = PR_PIECE[pk];
+    const routeCn = `菲律宾↔${f.cn}`;
+    rules.free_bags_per_pax = 2; rules.max_bags_per_pax = 7;
+    rules.extra_first_fee_usd = f.base; rules.extra_second_fee_usd = f.base; rules.extra_rest_fee_usd = f.base;
+    rules.excess_bag_fee_usd = f.base;
+    rules.excess_bag_fee_text = `超件：每件 USD ${f.base}（≤23kg/158cm，${routeCn}）`;
+    rules.overweight_fee_tiers = [{ maxKg: 32, fee: f.base }];
+    rules.overweight_fee_usd = f.base;
+    rules.overweight_fee_text = `超重：23–32kg USD ${f.base}/件（${routeCn}；>32kg 须重新打包）`;
+    rules.oversize_fee_usd = f.base;
+    rules.oversize_fee_text = `超大：158–203cm USD ${f.base}、>203cm USD ${f.osBig}（本工具按走货运处理）；超大且超重合并 USD ${f.osBig}（${routeCn}）`;
+    rules.notes = `菲航国际计件制：${routeCn}、${biz ? '公务' : superEcon ? '超经' : '经济'}；免费 2 件×${rules.standard_weight_kg}kg（三边和 ≤158cm）。超件/超重(23–32kg)/超大(158–203cm) 各 USD ${f.base}，超大 >203cm 或超大且超重 USD ${f.osBig}。超件与超重/超大叠加计收。单件 ≤32kg。⚠ 免费额度随票价品牌浮动（经济 2×23kg 起、部分低价票 NO FBA），请核对机票；离港以美元/菲律宾比索结算，以菲航官网为准。`;
+    return rules;
+  }
+  return manual(`菲航暂未收录「菲律宾↔${other}」费率（该目的地不在计重/计件表中），请手动填写`);
+}
+
 // ── Cebu Pacific (5J): low-cost carrier, no free allowance ────────────────
 // LCC model: every checked bag is a PREPAID 20kg piece; each piece can be
 // upgraded +4/+8/+12kg up to 32kg. Priced in PHP by haul bucket (domestic /
@@ -5464,6 +5568,17 @@ async function lookupRules(airlineCode, airlineName, cabin, origin, destination,
     const r = ciBuildRules(cabin, origin, destination);
     if (allowance.free !== 'auto') { r.free_bags_per_pax = parseInt(allowance.free); r.max_bags_per_pax = (parseInt(allowance.free) || 0) + 5; }
     if (allowance.weight !== 'auto') r.standard_weight_kg = parseFloat(allowance.weight);
+    return r;
+  }
+  // Philippine Airlines: Manila-hub dual system — weight concept (Asia/Pacific,
+  // per-kg USD) + piece concept (ME/Japan/US/Canada/Guam/Palau). Hardcoded.
+  if (airlineCode === 'PR') {
+    const r = prBuildRules(cabin, origin, destination);
+    if (allowance.free !== 'auto') { r.free_bags_per_pax = parseInt(allowance.free); r.max_bags_per_pax = (parseInt(allowance.free) || 0) + 5; }
+    if (allowance.weight !== 'auto') {
+      if (r.weight_concept_available) r.weight_concept_allowance_kg = parseFloat(allowance.weight);
+      else r.standard_weight_kg = parseFloat(allowance.weight);
+    }
     return r;
   }
   // Cebu Pacific: LCC, hardcoded official ONLINE rates (PHP→USD). No free
