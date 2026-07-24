@@ -1734,7 +1734,7 @@ let noStacking = false;
 // displayed values are trusted (backend-hardcoded / official-scraped). Every
 // OTHER airline's numbers come from the live AI lookup and are shown in pink to
 // flag "verify this — it's an AI estimate, not confirmed".
-const HARDCODED_AIRLINES = new Set(['CX','KE','JL','QR','EK','LH','AA','UA','NH','TK','BR','OZ','HX','5J','MU','CA','CZ']);
+const HARDCODED_AIRLINES = new Set(['CX','KE','JL','QR','EK','LH','AA','UA','NH','TK','BR','OZ','HX','5J','MU','CA','CZ','CI']);
 
 // One flyer realistically hauls ~100–150kg. When an airline publishes no
 // per-person total-weight cap, we fall back to this in packing AND surface it
@@ -4395,6 +4395,88 @@ function czBuildRules(cabin, origin, destination) {
   return rules;
 }
 
+// ─── China Airlines (CI / 華航) hardcoded fees ─────────────────────────────
+// Captured 2026-07 from CI's OFFICIAL pages: 免費行李額 + 超大/超重行李費 +
+// 超額行李收費標準 (screenshots supplied by the user). Taiwan-based, ALL
+// piece-concept (no domestic weight table). Fee zones: 台灣 + 第1–6區, and the
+// per-extra-piece fee is a directional 出發×抵達 matrix (official USD).
+//   • Extra-piece fee = base, from the zone matrix.
+//   • Surcharges are MULTIPLES of that base (like EVA): 超大 158–203cm = 1×,
+//     >203cm = 2×; 超重 23–32kg(經濟)/28–32kg(豪經) = 0.5×, 32–45kg = 3×(需核可).
+//   • 超大 + 超重 + 超件 all STACK (疊加計算) — the engine sums them.
+// Standard economy = 2 free pieces (特惠/基本 折扣票可能降為 1，紐澳跨海線特殊);
+// 豪經 2×28kg, 商務/頭等 2×32kg. Single piece ≤45kg (>45 走貨運), 三边和 ≤203cm
+// (free 158cm; 159–203 收 1×; >203 收 2×，>292 走貨運).
+const CI_ZONES = {
+  TW:  ['TPE','TSA','KHH','RMQ','TNN','KNH','MZG','TTT','HUN','KYD','CMJ','MFK','GNI'],
+  Z1:  ['NRT','HND','KIX','ITM','NGO','NKM','CTS','FUK','OKA','KOJ','HIJ','SDJ','KMJ','KKJ','ICN','GMP','PUS','CJU','TAE','KWJ','USN','ROR','GUM','HKG','PEK','PKX','PVG','SHA','CAN','SZX','CTU','TFU','CKG','HGH','XIY','NKG','WUH','CSX','KMG','XMN','TSN','HAK','SYX','CGO','FOC','TAO','DLC','SHE','HRB','URC','KWE','NNG','KWL','WNZ','NGB','HFE','JHG','YNT','ZUH','SWA','HIA','CZX','NTG','WUX','MNL','CEB','DVO','CRK','BKK','DMK','HKT','CNX','CEI','HDY','USM','KBV','UTP','KUL','PEN','BKI','KCH','LGK','JHB','SIN','CGK','DPS','SUB','UPG','HAN','SGN','DAD','CXR','PQC','VII','HPH','PNH','REP'],
+  Z2:  ['SYD','MEL','BNE','PER','ADL','OOL','CNS','AKL','CHC','WLG','ZQN','DEL','BOM','BLR','MAA','HYD','CCU','COK','TRV','AMD','GOI','MFM','KTM','CMB','DAC','ISB','KHI','LHE','ALA','NQZ','TAS','FRU','ULN','VTE','LPQ','BWN','MLE'],
+  Z3:  ['LAX','ONT','SFO','SEA','JFK','EWR','YVR','PHX','AMS','FRA','VIE','FCO','LHR','LGW','PRG','DXB','AUH','SHJ','DOH','RUH','JED','DMM','MED','KWI','BAH','MCT','AMM','BEY','TLV','IKA','THR','BGW'],
+  Z4:  ['ORD','DFW','IAH','ATL','MIA','BOS','IAD','DCA','DEN','LAS','PHL','SAN','PDX','SLC','DTW','MSP','CLT','MCO','SJC','HNL','YYZ','YUL','YYC','YOW','YEG','CDG','ORY','MUC','BER','DUS','HAM','STR','ZRH','GVA','MXP','VCE','MAD','BCN','LIS','OPO','CPH','ARN','OSL','HEL','BUD','WAW','KRK','OTP','ATH','IST','SAW','SVO','DME','LED','DUB','MAN','EDI','JNB','CPT','DUR','NBO','MBA','ADD','LOS','ABV','ACC','CAI','HRG','SSH','CMN','RAK','TUN','ALG','DAR','EBB'],
+  Z5:  ['MEX','CUN','GDL','MTY','GRU','GIG','EZE','SCL','BOG','LIM','UIO','GYE','PTY','SJO','GUA','SAL','ASU','MVD','CCS','HAV','SJU','PUJ','SDQ'],
+  Z6:  ['RGN','MDL','NYT'],
+};
+const CI_LOOKUP = (() => { const m = {}; for (const k in CI_ZONES) for (const a of CI_ZONES[k]) if (!(a in m)) m[a] = k; return m; })();
+function ciZoneOf(iata) { return CI_LOOKUP[(iata || '').trim().toUpperCase()] || null; }
+const CI_ZONE_CN = { TW: '台灣', Z1: '第1區(東亞/東南亞)', Z2: '第2區(澳紐/印度/其他亞洲)', Z3: '第3區(美加歐指定城市/中東)', Z4: '第4區(其他美加歐/非洲)', Z5: '第5區(中南美洲)', Z6: '第6區(緬甸)' };
+// Directional extra-piece fee (official USD). Only 台灣 & 第1區 origin rows are
+// published; other origins resolve by symmetry (dest→origin) below.
+const CI_EXCESS = {
+  TW: { Z1: 140, Z2: 170, Z3: 200, Z4: 230, Z5: 260, Z6: 300 },
+  Z1: { TW: 140, Z1: 170, Z2: 200, Z3: 230, Z4: 250, Z5: 260, Z6: 300 },
+};
+function ciExcessFee(o, d) {
+  if (CI_EXCESS[o] && CI_EXCESS[o][d] != null) return CI_EXCESS[o][d];
+  if (CI_EXCESS[d] && CI_EXCESS[d][o] != null) return CI_EXCESS[d][o]; // symmetric fallback
+  return null;
+}
+
+function ciBuildRules(cabin, origin, destination) {
+  const biz = (cabin === '商务舱' || cabin === '头等舱');
+  const first = (cabin === '头等舱');
+  const superEcon = (cabin === '超级经济舱');
+  const o = ciZoneOf(origin), d = ciZoneOf(destination);
+  const rules = {
+    airline_code: 'CI', airline_name_cn: '中华航空', cabin_class: cabin,
+    length_limit_cm: null, width_limit_cm: null, height_limit_cm: null,
+    max_total_weight_kg: 0,
+    weight_concept_available: false, weight_concept_allowance_kg: null,
+    weight_concept_excess_fee_usd_per_kg: null, weight_concept_text: '',
+    piece_concept_available: true,
+    weight_limit_kg: 45,
+    standard_weight_kg: first || biz ? 32 : superEcon ? 28 : 23,
+    standard_linear_cm: 158, linear_limit_cm: 203,
+    free_bags_per_pax: 2, max_bags_per_pax: 7,
+  };
+  const base = (o && d) ? ciExcessFee(o, d) : null;
+  if (base == null) {
+    rules.excess_bag_fee_usd = null; rules.overweight_fee_usd = null; rules.oversize_fee_usd = null;
+    rules.excess_bag_fee_text = rules.overweight_fee_text = rules.oversize_fee_text = '未查到，请手动填写';
+    rules.notes = '华航按 台灣/第1–6區 计费，无法识别该港口所属区域（或两端均非台灣/第1區），请手动填写费率';
+    return rules;
+  }
+  const routeCn = `${CI_ZONE_CN[o]}↔${CI_ZONE_CN[d]}`;
+  const half = Math.round(base * 0.5), triple = base * 3, dbl = base * 2;
+  // Extra piece: flat per piece (CI doesn't tier 1st/2nd).
+  rules.extra_first_fee_usd = base;
+  rules.extra_second_fee_usd = base;
+  rules.extra_rest_fee_usd = base;
+  rules.excess_bag_fee_usd = base;
+  rules.excess_bag_fee_text = `超件：每件 USD ${base}（≤23kg/158cm，${routeCn}）`;
+  // Overweight as multiples: 23/28–32kg = 0.5×; 32–45kg = 3×(需核可).
+  const owTiers = (first || biz) ? [{ maxKg: 45, fee: triple }] : [{ maxKg: 32, fee: half }, { maxKg: 45, fee: triple }];
+  rules.overweight_fee_tiers = owTiers;
+  rules.overweight_fee_usd = owTiers[0].fee;
+  rules.overweight_fee_text = (first || biz)
+    ? `超重：32–45kg USD ${triple}/件（3×，需核可；${routeCn}）`
+    : `超重：${superEcon ? '28' : '23'}–32kg USD ${half}（0.5×）、32–45kg USD ${triple}（3×，需核可）/件（${routeCn}）`;
+  // Oversize as multiples: 158–203cm = 1×; >203cm = 2× (noted; engine uses 1×).
+  rules.oversize_fee_usd = base;
+  rules.oversize_fee_text = `超大：158–203cm USD ${base}（1×）、>203cm USD ${dbl}（2×，>292cm 走货运）/件（${routeCn}）`;
+  rules.notes = `华航国际计件制（官网费率表，含官方美元价）：${routeCn}、${first ? '头等' : biz ? '商务' : superEcon ? '豪华经济' : '经济'}；免费 2 件×${rules.standard_weight_kg}kg（三边和 ≤158cm）。超件每件 USD ${base}；超重 ${superEcon ? '28' : '23'}–32kg=0.5×(USD ${half})、32–45kg=3×(USD ${triple}，需核可)；超大 158–203cm=1×(USD ${base})、>203cm=2×(USD ${dbl})。超件+超重+超大叠加计收。单件 ≤45kg、三边和 ≤203cm（>203cm 至 292cm 按 2× 收、须可入货舱）。⚠ 标准经济舱免费 2 件（特惠/基本折扣票可能为 1 件、纽澳跨海线特殊），随票价品牌浮动，请核对机票；以华航官网为准。`;
+  return rules;
+}
+
 // ── Cebu Pacific (5J): low-cost carrier, no free allowance ────────────────
 // LCC model: every checked bag is a PREPAID 20kg piece; each piece can be
 // upgraded +4/+8/+12kg up to 32kg. Priced in PHP by haul bucket (domestic /
@@ -5368,6 +5450,14 @@ async function lookupRules(airlineCode, airlineName, cabin, origin, destination,
       if (r.weight_concept_available) r.weight_concept_allowance_kg = parseFloat(allowance.weight);
       else r.standard_weight_kg = parseFloat(allowance.weight);
     }
+    return r;
+  }
+  // China Airlines: piece concept (Taiwan-anchored 台灣/第1–6區, official USD),
+  // surcharges as multiples of the extra-piece fee. Hardcoded from CI's pages.
+  if (airlineCode === 'CI') {
+    const r = ciBuildRules(cabin, origin, destination);
+    if (allowance.free !== 'auto') { r.free_bags_per_pax = parseInt(allowance.free); r.max_bags_per_pax = (parseInt(allowance.free) || 0) + 5; }
+    if (allowance.weight !== 'auto') r.standard_weight_kg = parseFloat(allowance.weight);
     return r;
   }
   // Cebu Pacific: LCC, hardcoded official ONLINE rates (PHP→USD). No free
