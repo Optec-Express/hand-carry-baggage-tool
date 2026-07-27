@@ -3360,8 +3360,11 @@ const LH_EUROPE = new Set([
 // Intercontinental sub-regions (the non-Europe endpoint decides the zone).
 // LH prices each continent differently, so they're separate zones.
 const LH_FE = new Set([ // Far East: China/HK/Japan/Korea/SE-Asia
-  'PEK','PKX','PVG','SHA','CAN','CTU','CKG','HGH','XMN','SZX','NKG','WUH','CSX','HKG','MFM','TPE','KHH',
-  'NRT','HND','KIX','NGO','ICN','GMP','PUS','BKK','DMK','HKT','SIN','KUL','PEN','CGK','DPS','SUB','MNL','CEB','HAN','SGN','RGN','PNH','REP','VTE']);
+  'PEK','PKX','PVG','SHA','CAN','CTU','CKG','HGH','XMN','SZX','NKG','WUH','CSX','TAO','DLC','TSN','FOC','KWL','HAK','SYX','HKG','MFM',
+  'TPE','TSA','KHH','RMQ','TNN','KNH','MZG', // Taiwan
+  'NRT','HND','KIX','ITM','NGO','FUK','CTS','OKA','KOJ','HIJ','KMJ','NGS','TAK','KMQ','SDJ','KKJ','OIT','MYJ', // Japan
+  'ICN','GMP','PUS','CJU','TAE','KWJ', // Korea
+  'BKK','DMK','HKT','SIN','KUL','PEN','CGK','DPS','SUB','MNL','CEB','HAN','SGN','RGN','PNH','REP','VTE']);
 const LH_ME = new Set([ // Middle East: Gulf / Israel / Iran / Iraq / Jordan / Lebanon
   'DXB','AUH','SHJ','DOH','BAH','KWI','MCT','RUH','JED','DMM','MED','TLV','AMM','BEY','BGW','BSR','EBL','NJF','IKA','THR','MHD']);
 const LH_SASIA = new Set([ // Indian subcontinent
