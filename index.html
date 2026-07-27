@@ -1734,7 +1734,7 @@ let noStacking = false;
 // displayed values are trusted (backend-hardcoded / official-scraped). Every
 // OTHER airline's numbers come from the live AI lookup and are shown in pink to
 // flag "verify this — it's an AI estimate, not confirmed".
-const HARDCODED_AIRLINES = new Set(['CX','KE','JL','QR','EK','LH','AA','UA','NH','TK','BR','OZ','HX','5J','MU','CA','CZ','CI','PR']);
+const HARDCODED_AIRLINES = new Set(['CX','KE','JL','QR','EK','LH','AA','UA','NH','TK','BR','OZ','HX','5J','MU','CA','CZ','CI','PR','SQ']);
 
 // One flyer realistically hauls ~100–150kg. When an airline publishes no
 // per-person total-weight cap, we fall back to this in packing AND surface it
@@ -4587,6 +4587,119 @@ function prBuildRules(cabin, origin, destination) {
   return manual(`菲航暂未收录「菲律宾↔${other}」费率（该目的地不在计重/计件表中），请手动填写`);
 }
 
+// ─── Singapore Airlines (SQ / 新航) hardcoded fees ────────────────────────
+// Captured 2026-07 from SQ's OFFICIAL 行李 pages (screenshots supplied by user).
+// Singapore-hub, DUAL system:
+//   • Any route NOT touching the Americas → WEIGHT concept. Per-kg USD from the
+//     symmetric 新加坡/区域1–4 matrix (official PREPAID >48h online rate).
+//   • Routes involving 北美/中美/南美 (US/Canada/Latin) → PIECE concept.
+// China/HK/日/韩/中东/南亚 = 计重区域2; SEA = 区域1; 澳纽/关岛/帕劳 = 区域3;
+// 非洲/欧洲 = 区域4. Key route 中国↔新加坡 = 区域2↔新加坡 = USD 11.3/kg.
+// Single piece ≤32kg (max dim 200×75×80cm), free size 三边和 ≤158cm.
+// Reuses region arrays defined above (CA_CN_MAINLAND, CA_REGIONS, CZ_REGIONS).
+const SQ_Z1 = new Set(CZ_REGIONS.SEA);
+const SQ_Z2 = new Set([...Array.from(CA_CN_MAINLAND), 'HKG', 'MFM', 'TPE', 'TSA', 'KHH', 'KNH', 'ULN', ...CZ_REGIONS.SAS, ...CZ_REGIONS.CWA, ...CZ_REGIONS.JP, ...CZ_REGIONS.KR, ...CZ_REGIONS.ME, 'VVO', 'KHV', 'IKT', 'UUD']);
+const SQ_Z3 = new Set([...CZ_REGIONS.SWP, 'GUM', 'ROR', 'SPN', 'DIL', 'MAJ', 'PNI', 'TKK']);
+const SQ_Z4 = new Set([...CZ_REGIONS.AF, ...CZ_REGIONS.EU]);
+const SQ_AMER = new Set([...CA_REGIONS.US, ...CA_REGIONS.CAN, ...CA_REGIONS.AMR]);
+function sqWeightZone(iata) {
+  const a = (iata || '').trim().toUpperCase();
+  if (a === 'SIN') return 'SG';
+  if (SQ_Z1.has(a)) return 'Z1';
+  if (SQ_Z2.has(a)) return 'Z2';
+  if (SQ_Z3.has(a)) return 'Z3';
+  if (SQ_Z4.has(a)) return 'Z4';
+  return null;
+}
+// Symmetric per-kg USD (official prepaid >48h online rate).
+const SQ_WRATE = {
+  SG: { Z1: 6, Z2: 11.3, Z3: 16.5, Z4: 21 },
+  Z1: { SG: 6, Z1: 12, Z2: 17.3, Z3: 22.5, Z4: 27 },
+  Z2: { SG: 11.3, Z1: 17.3, Z2: 22.5, Z3: 27.8, Z4: 32.3 },
+  Z3: { SG: 16.5, Z1: 22.5, Z2: 27.8, Z3: 33, Z4: 37.5 },
+  Z4: { SG: 21, Z1: 27, Z2: 32.3, Z3: 37.5, Z4: 42 },
+};
+const SQ_WZONE_CN = { SG: '新加坡', Z1: '区域1(东南亚)', Z2: '区域2(中国/日韩/南亚/中东)', Z3: '区域3(澳纽/太平洋)', Z4: '区域4(欧洲/非洲)' };
+// Piece concept (Americas routes): fee by the NON-Americas endpoint's piece-zone.
+const SQ_PZ1 = new Set([...CZ_REGIONS.JP, 'FRA', 'MUC', 'BER', 'DUS', 'HAM', 'STR']);
+const SQ_PZ3 = new Set([...CZ_REGIONS.SEA, ...CZ_REGIONS.SAS, ...CZ_REGIONS.SWP]);
+function sqPieceZone(iata) {
+  const a = (iata || '').trim().toUpperCase();
+  if (a === 'SIN') return 'pZ2';
+  if (SQ_PZ1.has(a)) return 'pZ1';
+  if (SQ_PZ3.has(a)) return 'pZ3';
+  return 'pZ4';
+}
+const SQ_PIECE = {
+  pZ1: { x: 120, ow: 80, os: 80, cn: '日本/德国/北美直飞' },
+  pZ2: { x: 160, ow: 100, os: 100, cn: '新加坡' },
+  pZ3: { x: 200, ow: 140, os: 140, cn: '东南亚/南亚/澳纽' },
+  pZ4: { x: 280, ow: 180, os: 180, cn: '其他(含中国/欧洲/中东)' },
+};
+
+function sqBuildRules(cabin, origin, destination) {
+  const biz = (cabin === '商务舱' || cabin === '头等舱');
+  const first = (cabin === '头等舱');
+  const superEcon = (cabin === '超级经济舱');
+  const O = (origin || '').trim().toUpperCase(), D = (destination || '').trim().toUpperCase();
+  const rules = {
+    airline_code: 'SQ', airline_name_cn: '新加坡航空', cabin_class: cabin,
+    length_limit_cm: null, width_limit_cm: null, height_limit_cm: null,
+    max_total_weight_kg: 0,
+    weight_concept_available: false, weight_concept_allowance_kg: null,
+    weight_concept_excess_fee_usd_per_kg: null, weight_concept_text: '',
+    piece_concept_available: true,
+    weight_limit_kg: 32,
+    standard_weight_kg: biz ? 32 : 23,
+    standard_linear_cm: 158, linear_limit_cm: 203,
+    free_bags_per_pax: 2, max_bags_per_pax: 7,
+  };
+  const manual = (note) => {
+    rules.excess_bag_fee_usd = null; rules.overweight_fee_usd = null; rules.oversize_fee_usd = null;
+    rules.excess_bag_fee_text = rules.overweight_fee_text = rules.oversize_fee_text = '未查到，请手动填写';
+    rules.notes = note; return rules;
+  };
+  const amer = SQ_AMER.has(O) || SQ_AMER.has(D);
+  // ── Piece concept: any route involving the Americas ──
+  if (amer) {
+    const other = SQ_AMER.has(O) ? (SQ_AMER.has(D) ? null : D) : O;
+    if (!other) return manual('新航美洲内航线较少见，请手动填写费率');
+    const pz = sqPieceZone(other);
+    const f = SQ_PIECE[pz];
+    const routeCn = `美洲↔${f.cn}`;
+    rules.standard_weight_kg = biz ? 32 : 23;
+    rules.free_bags_per_pax = 2; rules.max_bags_per_pax = 7;
+    rules.extra_first_fee_usd = f.x; rules.extra_second_fee_usd = f.x; rules.extra_rest_fee_usd = f.x;
+    rules.excess_bag_fee_usd = f.x;
+    rules.excess_bag_fee_text = `超件：每件 USD ${f.x}（≤23kg/158cm，${routeCn}）`;
+    rules.overweight_fee_tiers = [{ maxKg: 32, fee: f.ow }];
+    rules.overweight_fee_usd = f.ow;
+    rules.overweight_fee_text = `超重：单件超免费额度但 ≤32kg，USD ${f.ow}/件（${routeCn}）`;
+    rules.oversize_fee_usd = f.os;
+    rules.oversize_fee_text = `超尺寸：三边和 >158cm，USD ${f.os}/件（${routeCn}）`;
+    rules.notes = `新航计件制（往返美洲，官网预购价）：${routeCn}、${first ? '头等' : biz ? '商务' : superEcon ? '优选经济' : '经济'}；免费 2 件×${rules.standard_weight_kg}kg（三边和 ≤158cm）。超件 USD ${f.x}、超重(≤32kg) USD ${f.ow}、超尺寸 USD ${f.os}，各项叠加计收。单件 ≤32kg。⚠ 美洲线按 IATA 计件、费率随出发/目的区域较复杂，此为预购近似价，机场临时购买更高，以新航官网为准。`;
+    return rules;
+  }
+  // ── Weight concept: everything else ──
+  const za = sqWeightZone(O), zb = sqWeightZone(D);
+  if (!za || !zb) return manual('新航按 新加坡/区域1–4 计重计费，无法识别该港口所属区域，请手动填写费率');
+  const rate = SQ_WRATE[za] ? SQ_WRATE[za][zb] : null;
+  if (rate == null) return manual('新航该区域组合未收录，请手动填写费率');
+  const fba = first ? 50 : biz ? 40 : superEcon ? 35 : 30;
+  const routeCn = `${SQ_WZONE_CN[za]}↔${SQ_WZONE_CN[zb]}`;
+  rules.piece_concept_available = false;
+  rules.weight_concept_available = true;
+  rules.weight_concept_allowance_kg = fba;
+  rules.weight_concept_excess_fee_usd_per_kg = rate;
+  rules.weight_concept_text = `每公斤 USD ${rate}（${routeCn}，官网预购价；机场临时购买更高）`;
+  rules.standard_weight_kg = 32; rules.free_bags_per_pax = 2; rules.max_bags_per_pax = 10; rules.max_bags_official = false;
+  rules.excess_bag_fee_usd = null; rules.excess_bag_fee_text = '按公斤计（见计重制）';
+  rules.overweight_fee_usd = 0; rules.overweight_fee_text = '按公斤计（单件 >32kg 不接受托运）';
+  rules.oversize_fee_usd = null; rules.oversize_fee_text = '计重制按公斤计，无单独超尺寸费（单件 ≤200×75×80cm）';
+  rules.notes = `新航计重制（官网预购价）：${routeCn}，超出免费额度部分每公斤 USD ${rate}；免费额度 ${fba}kg（${first ? '头等' : biz ? '商务' : superEcon ? '优选经济' : '经济标准/灵活'}默认，特惠/精简经济为 25kg，请按实际机票在「机票含kg」改）。单件 ≤32kg、≤200×75×80cm、免费三边和 ≤158cm。⚠ 逾重费为官网预购(>48h)价，机场临时购买更高、且可能因折扣浮动，以新航官网为准。`;
+  return rules;
+}
+
 // ── Cebu Pacific (5J): low-cost carrier, no free allowance ────────────────
 // LCC model: every checked bag is a PREPAID 20kg piece; each piece can be
 // upgraded +4/+8/+12kg up to 32kg. Priced in PHP by haul bucket (domestic /
@@ -5574,6 +5687,17 @@ async function lookupRules(airlineCode, airlineName, cabin, origin, destination,
   // per-kg USD) + piece concept (ME/Japan/US/Canada/Guam/Palau). Hardcoded.
   if (airlineCode === 'PR') {
     const r = prBuildRules(cabin, origin, destination);
+    if (allowance.free !== 'auto') { r.free_bags_per_pax = parseInt(allowance.free); r.max_bags_per_pax = (parseInt(allowance.free) || 0) + 5; }
+    if (allowance.weight !== 'auto') {
+      if (r.weight_concept_available) r.weight_concept_allowance_kg = parseFloat(allowance.weight);
+      else r.standard_weight_kg = parseFloat(allowance.weight);
+    }
+    return r;
+  }
+  // Singapore Airlines: Singapore-hub dual system — weight concept (per-kg USD
+  // from the 新加坡/区域1–4 matrix) + piece concept (Americas routes). Hardcoded.
+  if (airlineCode === 'SQ') {
+    const r = sqBuildRules(cabin, origin, destination);
     if (allowance.free !== 'auto') { r.free_bags_per_pax = parseInt(allowance.free); r.max_bags_per_pax = (parseInt(allowance.free) || 0) + 5; }
     if (allowance.weight !== 'auto') {
       if (r.weight_concept_available) r.weight_concept_allowance_kg = parseFloat(allowance.weight);
