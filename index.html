@@ -1734,7 +1734,7 @@ let noStacking = false;
 // displayed values are trusted (backend-hardcoded / official-scraped). Every
 // OTHER airline's numbers come from the live AI lookup and are shown in pink to
 // flag "verify this — it's an AI estimate, not confirmed".
-const HARDCODED_AIRLINES = new Set(['CX','KE','JL','QR','EK','LH','AA','UA','NH','TK','BR','OZ','HX','5J','MU','CA','CZ','CI','PR','SQ']);
+const HARDCODED_AIRLINES = new Set(['CX','KE','JL','QR','EK','LH','AA','UA','NH','TK','BR','OZ','HX','5J','MU','CA','CZ','CI','PR','SQ','DL']);
 
 // One flyer realistically hauls ~100–150kg. When an airline publishes no
 // per-person total-weight cap, we fall back to this in packing AND surface it
@@ -3604,6 +3604,72 @@ function uaBuildRules(cabin, origin, destination) {
   rules.oversize_fee_usd = f.os;
   rules.oversize_fee_text = `USD ${f.os}/件（160–292cm，${f.cn}）`;
   rules.notes = `美联航计件制：${f.cn}、${first ? '头等' : biz ? '商务' : '经济主舱'}；免费 ${rules.free_bags_per_pax} 件×${rules.standard_weight_kg}kg，单件最重 ${f.maxKg}kg、最大 292cm，每人最多 ${f.max} 件。⚠ 费率取自美联航「行李费用计算器」网站价（经济主舱标准公布价），基础经济舱/旺季可能更高，仅供参考，实际请以官网查询为准。`;
+  return rules;
+}
+
+// ─── Delta Air Lines (DL) hardcoded fees ──────────────────────────────────
+// Piece concept, US-hub. Captured 2026-07 from Delta's own 行李计算器.
+// TRANSPACIFIC (亚洲↔美国) numbers were priced in JPY (departing HND) and
+// converted at ¥150/$1; verified as a clean additive model against 5 calculator
+// data points (base + overweight-tier + oversize-tier all stack):
+//   base 第1件 ¥13,900≈$93 / 第2件 ¥16,300≈$109; +超重23–32kg ¥16,200≈$108,
+//   +超重32–45kg ¥28,500≈$190; +超大159–203cm ¥32,400≈$216, +超大204–292cm ¥52,700≈$351.
+// US-DOMESTIC base 第1件 $45 / 第2件 $55 is Delta's published USD table; its
+// 3rd+/overweight/oversize are Delta's standard published excess (参考). Only
+// transpacific + domestic are covered; every other region → 未查到 (manual/AI).
+// Reuses AA_REGIONS (ASIA transpacific origins, US = 美国/加拿大).
+const DL_FEES = {
+  // os = 159–203cm tier; os2 = 204–292cm tier (surfaced in note only, tool prices single os).
+  transpacific: { free:0, ex:[93,109,109], ow:[{maxKg:32,fee:108},{maxKg:45,fee:190}], os:216, os2:351, maxKg:45, max:10, cn:'亚洲(跨太平洋)', jpy:true },
+  domestic:     { free:0, ex:[45,55,150],  ow:[{maxKg:32,fee:100},{maxKg:45,fee:200}], os:200, os2:200, maxKg:45, max:10, cn:'美国境内/加拿大', ref:true },
+};
+function dlZoneOf(origin, destination) {
+  const a = aaRegionOf(origin), b = aaRegionOf(destination);
+  if (!a || !b) return null;
+  const s = [a, b];
+  if (s.includes('ASIA') && s.includes('US')) return 'transpacific';
+  if (a === 'US' && b === 'US') return 'domestic';
+  return null; // Europe/Oceania/S.America etc. not captured → fall through
+}
+function dlBuildRules(cabin, origin, destination) {
+  const biz = (cabin === '商务舱' || cabin === '头等舱');
+  const first = (cabin === '头等舱');
+  const zone = dlZoneOf(origin, destination);
+  const rules = {
+    airline_code: 'DL', airline_name_cn: '达美航空', cabin_class: cabin,
+    standard_linear_cm: 158, linear_limit_cm: 292, length_limit_cm: null, width_limit_cm: null, height_limit_cm: null,
+    weight_concept_available: false, weight_concept_allowance_kg: null,
+    weight_concept_excess_fee_usd_per_kg: null, weight_concept_text: '',
+    max_total_weight_kg: 0, piece_concept_available: true,
+    standard_weight_kg: biz ? 32 : 23,
+  };
+  if (!zone) {
+    rules.weight_limit_kg = 45; rules.free_bags_per_pax = biz ? 2 : 1; rules.max_bags_per_pax = 10;
+    rules.excess_bag_fee_usd = null; rules.overweight_fee_usd = null; rules.oversize_fee_usd = null;
+    rules.excess_bag_fee_text = rules.overweight_fee_text = rules.oversize_fee_text = '未查到，请手动填写';
+    rules.notes = '达美目前仅收录「亚洲↔美国(跨太平洋)」及「美国/加拿大境内」两区，其余航线（欧洲/澳新/南美等）请手动填写费率或参考 AI 估算';
+    return rules;
+  }
+  const f = DL_FEES[zone];
+  rules.weight_limit_kg = f.maxKg;
+  rules.free_bags_per_pax = first ? 3 : (biz ? 2 : f.free);
+  rules.max_bags_per_pax = f.max;
+  rules.extra_first_fee_usd = f.ex[0];
+  rules.extra_second_fee_usd = f.ex[1];
+  rules.extra_rest_fee_usd = f.ex[2];
+  rules.excess_bag_fee_usd = f.ex[2];
+  rules.excess_bag_fee_text = `超免费额度后：第1件 USD ${f.ex[0]}、第2件 USD ${f.ex[1]}、之后每件 USD ${f.ex[2]}（${f.cn}）`;
+  rules.overweight_fee_tiers = f.ow;
+  rules.overweight_fee_usd = f.ow[0].fee;
+  rules.overweight_fee_text = f.ow.map(t => `≤${t.maxKg}kg USD ${t.fee}`).join(' / ') + `（超重，${f.cn}）`;
+  rules.oversize_fee_usd = f.os;
+  rules.oversize_fee_text = f.os2 && f.os2 !== f.os
+    ? `USD ${f.os}/件（159–203cm）；204–292cm 约 USD ${f.os2}（${f.cn}）`
+    : `USD ${f.os}/件（159–292cm，${f.cn}）`;
+  const src = f.jpy
+    ? '⚠ 跨太平洋费率取自达美官方「行李计算器」日本出发 JPY 价、按 ¥150/$1 折算，其他出发地/币种可能不同，仅供参考、以达美官网为准。'
+    : '⚠ 美国境内第1/2件为官方公布价；3件起及超重/超大为达美标准公布价，仅供参考、以达美官网为准。';
+  rules.notes = `达美计件制：${f.cn}、${first ? '头等' : biz ? '商务' : '经济主舱'}；免费 ${rules.free_bags_per_pax} 件×${rules.standard_weight_kg}kg，单件最重 ${f.maxKg}kg、最大 292cm，每人最多 ${f.max} 件。超件/超重/超大各项叠加计收。${src}`;
   return rules;
 }
 
@@ -5600,6 +5666,13 @@ async function lookupRules(airlineCode, airlineName, cabin, origin, destination,
   // United Airlines: piece concept, hardcoded (US-hub, zone × bag position).
   if (airlineCode === 'UA') {
     const r = uaBuildRules(cabin, origin, destination);
+    if (allowance.free !== 'auto') r.free_bags_per_pax = parseInt(allowance.free);
+    if (allowance.weight !== 'auto') r.standard_weight_kg = parseFloat(allowance.weight);
+    return r;
+  }
+  // Delta Air Lines: piece concept, hardcoded (US-hub; transpacific + domestic).
+  if (airlineCode === 'DL') {
+    const r = dlBuildRules(cabin, origin, destination);
     if (allowance.free !== 'auto') r.free_bags_per_pax = parseInt(allowance.free);
     if (allowance.weight !== 'auto') r.standard_weight_kg = parseFloat(allowance.weight);
     return r;
