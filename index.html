@@ -1734,7 +1734,7 @@ let noStacking = false;
 // displayed values are trusted (backend-hardcoded / official-scraped). Every
 // OTHER airline's numbers come from the live AI lookup and are shown in pink to
 // flag "verify this — it's an AI estimate, not confirmed".
-const HARDCODED_AIRLINES = new Set(['CX','KE','JL','QR','EK','LH','AA','UA','NH','TK','BR','OZ','HX','5J','MU','CA','CZ','CI','PR','SQ','DL']);
+const HARDCODED_AIRLINES = new Set(['CX','KE','JL','QR','EK','LH','AA','UA','NH','TK','BR','OZ','HX','5J','MU','CA','CZ','CI','PR','SQ','DL','TG']);
 
 // One flyer realistically hauls ~100–150kg. When an airline publishes no
 // per-person total-weight cap, we fall back to this in packing AND surface it
@@ -4792,6 +4792,137 @@ function sqBuildRules(cabin, origin, destination) {
   return rules;
 }
 
+// ─── Thai Airways (TG / 泰航) hardcoded fees ───────────────────────────────
+// PIECE concept, effective for travel on/after 02 Mar 2026 (TG's new global
+// policy; the old weight concept is superseded for current travel). Captured
+// 2026-07 from TG's official 行李计算/超额行李 pages (screenshots supplied).
+// Fee = flat rate by zone pair (symmetric matrix, official ONLINE prepaid).
+// Two tables: EX1 = 1st & 2nd excess piece; EX2 = 3rd+ excess piece.
+// Overweight 23–32kg (only for 23kg-class) = +1× zone rate; 32kg-class capped.
+// Oversize 158–200cm = +1× zone rate; 200–330cm = +2×. Single piece ≤32kg,
+// ≤330cm, max 10 pieces. THB applies for Thailand-origin check-in, USD for
+// international check-in; matrix stores USD (THB ≈ USD×35, cross-checked).
+// Zones: 昆明/BJS(等) split — Kunming is Z1, rest of mainland China is Z2.
+// Reuses CA_CN_MAINLAND (China) and CA_REGIONS.JP / .US / .CAN.
+const TG_DOM = new Set(['CNX','CEI','HKT','KBV','HDY','KKC','UBP','UTH','URT','USM','NST','TDX','NNT','LPT','PHS','ROI','NAW','BFV','HGN','NAK','PRH']);
+const TG_Z1 = new Set([
+  'KMG',                                        // China (Kunming) only
+  'DAC','CGP','PNH','REP','KOS','VTE','LPQ','PKZ', // Bangladesh/Cambodia/Laos
+  'KUL','PEN','BKI','KCH','LGK','JHB',           // Malaysia
+  'RGN','MDL','NYU','SIN',                       // Myanmar / Singapore
+  'SGN','HAN','DAD','CXR','PQC','HPH','VII',     // Vietnam
+]);
+const TG_Z2 = new Set([
+  ...[...CA_CN_MAINLAND].filter(a => a !== 'KMG'), // China except Kunming
+  'HKG','MFM','TPE','TSA','KHH','RMQ','TNN',       // HK / Macau / Taiwan
+  'DEL','BOM','BLR','MAA','HYD','CCU','COK','AMD','GOI','TRV', // India
+  'CGK','DPS','SUB','UPG','JOG',                   // Indonesia
+  'KTM','MNL','CEB','DVO','CRK','CMB','MLE',       // Nepal/Philippines/SriLanka/Maldives
+]);
+const TG_Z3 = new Set([
+  'PER',                                           // Australia (Perth)
+  ...CA_REGIONS.JP,                                // Japan
+  'ICN','GMP','PUS','CJU','TAE','KWJ','USN',       // South Korea
+  'KHI','LHE','ISB','DXB','AUH','SHJ','KWI',       // Pakistan / UAE / Kuwait
+]);
+const TG_Z4 = new Set([
+  'SYD','MEL','BNE','ADL','OOL','CNS',             // Australia (other)
+  'TLV','IST','SAW','ADB','AYT','ESB',             // Israel / Türkiye
+  'SVO','DME','VKO','LED',                         // Russia (Moscow etc.)
+]);
+const TG_Z5 = new Set([
+  'LHR','LGW','MAN','EDI','DUB','CDG','ORY','NCE','LYS','FRA','MUC','BER','DUS','HAM','STR',
+  'AMS','BRU','VIE','ZRH','GVA','MXP','FCO','VCE','NAP','MAD','BCN','LIS','OPO','CPH','ARN',
+  'GOT','OSL','HEL','PRG','BUD','WAW','KRK','OTP','SOF','ZAG','BEG','ATH','SKG','MLA','KEF', // Europe
+  'AKL','CHC','WLG','ZQN',                         // New Zealand
+  'DOH','RUH','JED','DMM','MED','BAH','MCT','AMM','BEY','BGW','CAI','HRG','SSH','LXR',        // Middle East
+  'JNB','CPT','DUR','NBO','MBA','DAR','EBB','ADD','LOS','ABV','ACC','DKR','CMN','RAK','TUN','ALG', // Africa
+]);
+const TG_Z6 = new Set([
+  ...CA_REGIONS.US, ...CA_REGIONS.CAN,             // North America
+  'GRU','GIG','EZE','SCL','BOG','LIM','UIO','GYE','PTY','MVD','ASU','CCS', // South America
+]);
+function tgZoneOf(iata) {
+  const a = (iata || '').trim().toUpperCase();
+  if (a === 'BKK' || a === 'DMK' || a === 'UTP') return 'BKK';
+  if (TG_DOM.has(a)) return 'DOM';
+  if (TG_Z1.has(a)) return 'Z1';
+  if (TG_Z2.has(a)) return 'Z2';
+  if (TG_Z3.has(a)) return 'Z3';
+  if (TG_Z4.has(a)) return 'Z4';
+  if (TG_Z5.has(a)) return 'Z5';
+  if (TG_Z6.has(a)) return 'Z6';
+  return null;
+}
+const TG_ZONE_CN = { BKK:'曼谷', DOM:'泰国国内', Z1:'区1(东南亚/昆明)', Z2:'区2(中国/港澳台/印度/印尼/菲)', Z3:'区3(日/韩/珀斯/巴基/阿联酋)', Z4:'区4(澳洲/以色列/土耳其/莫斯科)', Z5:'区5(欧洲/新西兰/中东/非洲)', Z6:'区6(北美/南美)' };
+// Excess piece rate (USD), symmetric. EX1 = 1st & 2nd excess piece; EX2 = 3rd+.
+// BKK↔DOM is a Thai-domestic pair (≈THB 630/1260); stored as USD-equiv, rarely used.
+const TG_EX1 = {
+  BKK: { BKK:0,   DOM:18,  Z1:80,  Z2:95,  Z3:120, Z4:160, Z5:200, Z6:220 },
+  DOM: { BKK:18,  DOM:0,   Z1:100, Z2:115, Z3:140, Z4:180, Z5:220, Z6:240 },
+  Z1:  { BKK:80,  DOM:100, Z1:130, Z2:140, Z3:160, Z4:190, Z5:225, Z6:255 },
+  Z2:  { BKK:95,  DOM:115, Z1:140, Z2:150, Z3:170, Z4:205, Z5:235, Z6:270 },
+  Z3:  { BKK:120, DOM:140, Z1:160, Z2:170, Z3:190, Z4:225, Z5:255, Z6:290 },
+  Z4:  { BKK:160, DOM:180, Z1:190, Z2:205, Z3:225, Z4:255, Z5:290, Z6:325 },
+  Z5:  { BKK:200, DOM:220, Z1:225, Z2:235, Z3:255, Z4:290, Z5:320, Z6:355 },
+  Z6:  { BKK:220, DOM:240, Z1:255, Z2:270, Z3:290, Z4:325, Z5:355, Z6:375 },
+};
+const TG_EX2 = {
+  BKK: { BKK:0,   DOM:36,  Z1:160, Z2:190, Z3:240, Z4:320, Z5:400, Z6:440 },
+  DOM: { BKK:36,  DOM:0,   Z1:200, Z2:230, Z3:280, Z4:360, Z5:440, Z6:480 },
+  Z1:  { BKK:160, DOM:200, Z1:260, Z2:280, Z3:320, Z4:380, Z5:450, Z6:510 },
+  Z2:  { BKK:190, DOM:230, Z1:280, Z2:300, Z3:340, Z4:410, Z5:470, Z6:540 },
+  Z3:  { BKK:240, DOM:280, Z1:320, Z2:340, Z3:380, Z4:450, Z5:510, Z6:580 },
+  Z4:  { BKK:320, DOM:360, Z1:380, Z2:410, Z3:450, Z4:510, Z5:580, Z6:650 },
+  Z5:  { BKK:400, DOM:440, Z1:450, Z2:470, Z3:510, Z4:580, Z5:640, Z6:710 },
+  Z6:  { BKK:440, DOM:480, Z1:510, Z2:540, Z3:580, Z4:650, Z5:710, Z6:750 },
+};
+function tgBuildRules(cabin, origin, destination) {
+  const biz = (cabin === '商务舱' || cabin === '头等舱');
+  const first = (cabin === '头等舱');
+  const superEcon = (cabin === '超级经济舱');
+  const O = (origin || '').trim().toUpperCase(), D = (destination || '').trim().toUpperCase();
+  const rules = {
+    airline_code: 'TG', airline_name_cn: '泰国国际航空', cabin_class: cabin,
+    standard_linear_cm: 158, linear_limit_cm: 330, length_limit_cm: null, width_limit_cm: null, height_limit_cm: null,
+    weight_concept_available: false, weight_concept_allowance_kg: null,
+    weight_concept_excess_fee_usd_per_kg: null, weight_concept_text: '',
+    max_total_weight_kg: 0, piece_concept_available: true,
+    standard_weight_kg: biz ? 32 : 23,
+  };
+  const manual = (note) => {
+    rules.weight_limit_kg = 32; rules.free_bags_per_pax = first ? 3 : biz ? 2 : 1; rules.max_bags_per_pax = 10;
+    rules.excess_bag_fee_usd = null; rules.overweight_fee_usd = null; rules.oversize_fee_usd = null;
+    rules.excess_bag_fee_text = rules.overweight_fee_text = rules.oversize_fee_text = '未查到，请手动填写';
+    rules.notes = note; return rules;
+  };
+  const za = tgZoneOf(O), zb = tgZoneOf(D);
+  if (!za || !zb) return manual('泰航按 曼谷/泰国国内/区1–6 计件计费，无法识别该港口所属区域，请手动填写费率');
+  const ex1 = TG_EX1[za][zb], ex2 = TG_EX2[za][zb];
+  const zoneCn = `${TG_ZONE_CN[za]}↔${TG_ZONE_CN[zb]}`;
+  rules.weight_limit_kg = 32;
+  rules.free_bags_per_pax = first ? 3 : (biz || superEcon) ? 2 : 1;
+  rules.max_bags_per_pax = 10;
+  rules.extra_first_fee_usd = ex1;
+  rules.extra_second_fee_usd = ex1;
+  rules.extra_rest_fee_usd = ex2;
+  rules.excess_bag_fee_usd = ex2;
+  rules.excess_bag_fee_text = `超件：第1/2件超额 USD ${ex1}、第3件起 USD ${ex2}/件（${zoneCn}，官网预购价）`;
+  if (!biz) {
+    rules.overweight_fee_tiers = [{ maxKg: 32, fee: ex1 }];
+    rules.overweight_fee_usd = ex1;
+    rules.overweight_fee_text = `超重 23–32kg：加收 1× 区域价 USD ${ex1}/件（${zoneCn}）；单件 >32kg 不接受`;
+  } else {
+    rules.overweight_fee_tiers = [];
+    rules.overweight_fee_usd = 0;
+    rules.overweight_fee_text = '商务/头等单件上限 32kg，超过不接受托运';
+  }
+  rules.oversize_fee_usd = ex1;
+  rules.oversize_fee_text = `超尺寸 158–200cm：加收 1× 区域价 USD ${ex1}/件；200–330cm：加收 2×（${zoneCn}）`;
+  rules.notes = `泰航计件制（2026-03-02 起生效，官网预购价）：${zoneCn}、${first ? '头等' : biz ? '商务(皇家丝绸)' : superEcon ? '超级经济' : '经济'}；免费 ${rules.free_bags_per_pax} 件×${rules.standard_weight_kg}kg（经济 Saver/Standard 默认 1 件、Full Flex/Flexi 为 2 件，请按实际机票在「免费件数」调整）。超件/超重(23–32kg)/超大(158–330cm)各项按区域价叠加计收，单件 ≤32kg、≤330cm，每人最多 10 件。⚠ 泰国境内出发按 THB 计、境外出发按 USD 计，此为境外 USD 预购价，机场临时购买更高，以泰航官网为准。`;
+  return rules;
+}
+
 // ── Cebu Pacific (5J): low-cost carrier, no free allowance ────────────────
 // LCC model: every checked bag is a PREPAID 20kg piece; each piece can be
 // upgraded +4/+8/+12kg up to 32kg. Priced in PHP by haul bucket (domestic /
@@ -5791,6 +5922,13 @@ async function lookupRules(airlineCode, airlineName, cabin, origin, destination,
       if (r.weight_concept_available) r.weight_concept_allowance_kg = parseFloat(allowance.weight);
       else r.standard_weight_kg = parseFloat(allowance.weight);
     }
+    return r;
+  }
+  // Thai Airways: piece concept (eff 02 Mar 2026), Bangkok-hub, zone-pair matrix.
+  if (airlineCode === 'TG') {
+    const r = tgBuildRules(cabin, origin, destination);
+    if (allowance.free !== 'auto') { r.free_bags_per_pax = parseInt(allowance.free); r.max_bags_per_pax = Math.max(10, (parseInt(allowance.free) || 0) + 5); }
+    if (allowance.weight !== 'auto') r.standard_weight_kg = parseFloat(allowance.weight);
     return r;
   }
   // Singapore Airlines: Singapore-hub dual system — weight concept (per-kg USD
