@@ -3463,8 +3463,9 @@ function lhBuildRules(cabin, origin, destination) {
 // matching LX's within-free counter 150/300). extraSecond present where the zone
 // has a distinct 2nd-piece tier. Zone keys reuse LH's (lhZoneOf / LH_ZONE_CN).
 const LX_FEES = {
-  FE:  { extraFirst: 65, extraRest: 200, over: 150 },                  // PEK→ZRH (远东)
-  NAM: { extraFirst: 65, extraSecond: 90, extraRest: 200, over: 150 }, // PVG→JFK (北美)
+  FE:  { extraFirst: 65, extraRest: 200, over: 150 },                   // PEK→ZRH (远东)
+  NAM: { extraFirst: 65, extraSecond: 90,  extraRest: 200, over: 150 }, // PVG→JFK (北美)
+  SAM: { extraFirst: 65, extraSecond: 140, extraRest: 200, over: 150 }, // PVG→GRU (中南美)
 };
 function lxBuildRules(cabin, origin, destination) {
   const r = lhBuildRules(cabin, origin, destination);
