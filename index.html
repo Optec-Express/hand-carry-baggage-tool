@@ -3468,6 +3468,7 @@ const LX_FEES = {
   SAM: { extraFirst: 65, extraSecond: 140, extraRest: 200, over: 150 }, // PVG→GRU (中南美)
   ME:  { extraFirst: 75, extraRest: 140, over: 115 },                   // ZRH→DXB (中东, CHF≈USD)
   SASIA:{ extraFirst: 75, extraRest: 185, over: 140 },                  // ZRH→BOM (南亚, CHF≈USD)
+  AFR: { extraFirst: 75, extraSecond: 115, extraRest: 230, over: 170 }, // ZRH→JNB (非洲, CHF≈USD)
 };
 function lxBuildRules(cabin, origin, destination) {
   const r = lhBuildRules(cabin, origin, destination);
