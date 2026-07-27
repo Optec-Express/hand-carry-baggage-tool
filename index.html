@@ -3617,11 +3617,13 @@ function uaBuildRules(cabin, origin, destination) {
 // TRANSATLANTIC (欧洲↔美国) from LHR→JFK (GBP, £1=$1.28): base £60/£72, +超重
 // 23–32kg £72, +超大 >158cm £212 flat; 32–45kg NOT accepted. OCEANIA (澳新↔美)
 // from SYD→LAX (AUD, A$1=$0.66): FIRST bag free, 2nd A$144, +超重23–32kg A$144,
-// +超大 A$251/A$430; 32–45kg NOT accepted. US-DOMESTIC base 第1件 $45 / 第2件 $55
+// +超大 A$251/A$430; 32–45kg NOT accepted. S.AMERICA (南美↔美) from GRU→ATL
+// (BRL, R$1=$0.18): base R$381.71/R$508.95, +超重 R$508.94/R$1017.88, +超大
+// R$763.41/R$1526.83, 32–45kg accepted. US-DOMESTIC base 第1件 $45 / 第2件 $55
 // is Delta's published USD table; its 3rd+/overweight/oversize are Delta's
-// standard published excess (参考). Transpacific + transatlantic + oceania +
-// domestic covered; S.America etc. → 未查到 (manual/AI).
-// Reuses AA_REGIONS (ASIA transpacific, EUR transatlantic, OCE oceania, US).
+// standard published excess (参考). Transpacific/transatlantic/oceania/southam/
+// domestic covered; Caribbean/Cuba/Venezuela etc. → 未查到 (manual/AI).
+// Reuses AA_REGIONS (ASIA, EUR, OCE, SAM, US).
 const DL_FEES = {
   // os = 159–203cm tier; os2 = 204–292cm tier (surfaced in note only, tool prices single os).
   transpacific: { free:0, ex:[93,109,109], ow:[{maxKg:32,fee:108},{maxKg:45,fee:190}], os:216, os2:351, maxKg:45, max:10, cn:'亚洲(跨太平洋)', jpy:true },
@@ -3632,6 +3634,10 @@ const DL_FEES = {
   // 2nd A$144; +超重23–32kg A$144, +超大159–203 A$251, +超大204–292 A$430; 32–45kg NOT
   // accepted → maxKg 32. 3rd+ piece fee not shown by calc → 参考估算.
   oceania:      { free:1, ex:[95,190,190],  ow:[{maxKg:32,fee:95}],                     os:166, os2:284, maxKg:32, max:10, cn:'澳新(澳/新↔美)', aud:true },
+  // S.America: from GRU→ATL calculator (BRL, R$1=$0.18). base R$381.71/R$508.95;
+  // +超重23–32kg R$508.94, +超重32–45kg R$1017.88 (=2×); +超大159–203 R$763.41,
+  // +超大204–292 R$1526.83 (=2×). 32–45kg accepted → maxKg 45.
+  southam:      { free:0, ex:[69,92,92],    ow:[{maxKg:32,fee:92},{maxKg:45,fee:183}],  os:137, os2:275, maxKg:45, max:10, cn:'南美↔美国', brl:true },
   domestic:     { free:0, ex:[45,55,150],  ow:[{maxKg:32,fee:100},{maxKg:45,fee:200}], os:200, os2:200, maxKg:45, max:10, cn:'美国境内/加拿大', ref:true },
 };
 function dlZoneOf(origin, destination) {
@@ -3641,8 +3647,9 @@ function dlZoneOf(origin, destination) {
   if (s.includes('ASIA') && s.includes('US')) return 'transpacific';
   if (s.includes('EUR')  && s.includes('US')) return 'transatlantic';
   if (s.includes('OCE')  && s.includes('US')) return 'oceania';
+  if (s.includes('SAM')  && s.includes('US')) return 'southam';
   if (a === 'US' && b === 'US') return 'domestic';
-  return null; // S.America etc. not captured → fall through
+  return null; // Caribbean/Cuba/Venezuela etc. not captured → fall through
 }
 function dlBuildRules(cabin, origin, destination) {
   const biz = (cabin === '商务舱' || cabin === '头等舱');
@@ -3660,7 +3667,7 @@ function dlBuildRules(cabin, origin, destination) {
     rules.weight_limit_kg = 45; rules.free_bags_per_pax = biz ? 2 : 1; rules.max_bags_per_pax = 10;
     rules.excess_bag_fee_usd = null; rules.overweight_fee_usd = null; rules.oversize_fee_usd = null;
     rules.excess_bag_fee_text = rules.overweight_fee_text = rules.oversize_fee_text = '未查到，请手动填写';
-    rules.notes = '达美目前收录「亚洲↔美国(跨太平洋)」「欧洲↔美国(跨大西洋)」「澳新↔美国(大洋洲)」及「美国/加拿大境内」四区，其余航线（南美等）请手动填写费率或参考 AI 估算';
+    rules.notes = '达美目前收录「亚洲↔美国(跨太平洋)」「欧洲↔美国(跨大西洋)」「澳新↔美国(大洋洲)」「南美↔美国」及「美国/加拿大境内」五区，其余航线（加勒比/古巴等）请手动填写费率或参考 AI 估算';
     return rules;
   }
   const f = DL_FEES[zone];
@@ -3685,6 +3692,8 @@ function dlBuildRules(cabin, origin, destination) {
     ? '⚠ 跨大西洋费率取自达美官方「行李计算器」伦敦出发 GBP 价、按 £1=$1.28 折算（32–45kg 禁运、超大平价），其他出发地/币种可能不同，仅供参考、以达美官网为准。'
     : f.aud
     ? '⚠ 大洋洲费率取自达美官方「行李计算器」悉尼出发 AUD 价、按 A$1=$0.66 折算（首件免费、32–45kg 禁运；3件起为估算），其他出发地/币种可能不同，仅供参考、以达美官网为准。'
+    : f.brl
+    ? '⚠ 南美费率取自达美官方「行李计算器」圣保罗出发 BRL 价、按 R$1=$0.18 折算（3件起为估算），其他出发地/币种可能不同，仅供参考、以达美官网为准。'
     : '⚠ 美国境内第1/2件为官方公布价；3件起及超重/超大为达美标准公布价，仅供参考、以达美官网为准。';
   rules.notes = `达美计件制：${f.cn}、${first ? '头等' : biz ? '商务' : '经济主舱'}；免费 ${rules.free_bags_per_pax} 件×${rules.standard_weight_kg}kg，单件最重 ${f.maxKg}kg、最大 292cm，每人最多 ${f.max} 件。超件/超重/超大各项叠加计收。${src}`;
   return rules;
