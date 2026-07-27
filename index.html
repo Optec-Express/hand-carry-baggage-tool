@@ -1734,7 +1734,7 @@ let noStacking = false;
 // displayed values are trusted (backend-hardcoded / official-scraped). Every
 // OTHER airline's numbers come from the live AI lookup and are shown in pink to
 // flag "verify this — it's an AI estimate, not confirmed".
-const HARDCODED_AIRLINES = new Set(['CX','KE','JL','QR','EK','LH','AA','UA','NH','TK','BR','OZ','HX','5J','MU','CA','CZ','CI','PR','SQ','DL','TG','AC','LX']);
+const HARDCODED_AIRLINES = new Set(['CX','KE','JL','QR','EK','LH','AA','UA','NH','TK','BR','OZ','HX','5J','MU','CA','CZ','CI','PR','SQ','DL','TG','AC','LX','VN']);
 
 // One flyer realistically hauls ~100–150kg. When an airline publishes no
 // per-person total-weight cap, we fall back to this in packing AND surface it
@@ -5044,6 +5044,91 @@ function tgBuildRules(cabin, origin, destination) {
   return rules;
 }
 
+// ─── Vietnam Airlines (VN / 越南航空) hardcoded fees ────────────────────────
+// PIECE concept, Vietnam-hub. Captured 2026-07 from VN's official 行李 pages.
+// Standard 23kg(econ/PE)/32kg(biz) × 158cm; overweight 23–32kg, oversize
+// 158–203cm; >32kg or >203cm → cargo. International excess = USD 4-zone matrix
+// (A/B/C/D), 其他时段(normal) rates; 高峰期(peak/seasonal) higher — noted.
+// Domestic Vietnam is VND-based (≈USD here). Zones: A=越南+东南亚+港澳;
+// B=中/台/韩/日/印度+其他亚洲; C=欧洲/非洲/中东; D=澳洲/俄罗斯/美洲.
+const VN_VN = new Set(['HAN','SGN','DAD','CXR','PQC','HPH','VII','VCA','DLI','UIH','VDO','THD','VCL','HUI','TBB','VCS','VKG','CAH','VDH','DIN','BMV']);
+const VN_ZA = new Set([
+  ...VN_VN,
+  'BKK','DMK','HKT','CNX','CEI','HDY','USM','KBV','UTP',
+  'CGK','DPS','SUB','JOG','KNO','UPG','SRG',
+  'KUL','PEN','BKI','KCH','JHB','LGK','SIN',
+  'VTE','LPQ','PKZ','PNH','REP','KOS','RGN','MDL','NYU',
+  'MNL','CEB','DVO','CRK','ILO','HKG','MFM',
+]);
+const VN_ZB = new Set([
+  ...CA_CN_MAINLAND,
+  'TPE','TSA','KHH','RMQ','TNN',
+  'ICN','GMP','PUS','CJU','TAE','KWJ',
+  ...CA_REGIONS.JP,
+  'DEL','BOM','BLR','MAA','HYD','CCU','COK','AMD','GOI','TRV',
+  'KTM','CMB','DAC','MLE','KHI','LHE','ISB',
+  'ALA','NQZ','TAS','FRU','ASB',
+]);
+const VN_AMER = new Set([...CA_REGIONS.US, ...CA_REGIONS.CAN, ...CA_REGIONS.AMR]);
+const VN_ZD = new Set([...CA_REGIONS.SWP, 'SVO','DME','VKO','LED','VVO','KHV','OVB','SVX', ...VN_AMER]);
+const VN_ZC = new Set([...CA_REGIONS.EU, ...CA_REGIONS.ME, ...CA_REGIONS.AF]);
+function vnZoneOf(iata) {
+  const a = (iata || '').trim().toUpperCase();
+  if (VN_ZA.has(a)) return 'A';
+  if (VN_ZD.has(a)) return 'D'; // before B/C so Russia/Australia/Americas win overlaps
+  if (VN_ZB.has(a)) return 'B';
+  if (VN_ZC.has(a)) return 'C';
+  return null;
+}
+const VN_EXTRA = { // 额外行李 & 超尺寸(158–203cm) USD, symmetric (其他时段)
+  A: { A:110, B:150, C:200, D:260 }, B: { A:150, B:150, C:200, D:260 },
+  C: { A:200, B:200, C:200, D:260 }, D: { A:260, B:260, C:260, D:260 },
+};
+const VN_OVER = { // 超重(23–32kg) USD
+  A: { A:80,  B:110, C:150, D:200 }, B: { A:110, B:110, C:150, D:200 },
+  C: { A:150, B:150, C:150, D:200 }, D: { A:200, B:200, C:200, D:200 },
+};
+const VN_ZONE_CN = { A:'区A(越南/东南亚/港澳)', B:'区B(中国/台韩日/印度)', C:'区C(欧洲/非洲/中东)', D:'区D(澳洲/俄罗斯/美洲)' };
+function vnBuildRules(cabin, origin, destination) {
+  const biz = (cabin === '商务舱' || cabin === '头等舱');
+  const pe = (cabin === '超级经济舱');
+  const O = (origin || '').trim().toUpperCase(), D = (destination || '').trim().toUpperCase();
+  const rules = {
+    airline_code: 'VN', airline_name_cn: '越南航空', cabin_class: cabin,
+    standard_linear_cm: 158, linear_limit_cm: 203, length_limit_cm: null, width_limit_cm: null, height_limit_cm: null,
+    weight_concept_available: false, weight_concept_allowance_kg: null,
+    weight_concept_excess_fee_usd_per_kg: null, weight_concept_text: '',
+    max_total_weight_kg: 0, piece_concept_available: true,
+    standard_weight_kg: biz ? 32 : 23, weight_limit_kg: 32,
+  };
+  const za = vnZoneOf(O), zb = vnZoneOf(D);
+  if (!za || !zb) {
+    rules.free_bags_per_pax = biz ? 2 : 1; rules.max_bags_per_pax = 10;
+    rules.excess_bag_fee_usd = null; rules.overweight_fee_usd = null; rules.oversize_fee_usd = null;
+    rules.excess_bag_fee_text = rules.overweight_fee_text = rules.oversize_fee_text = '未查到，请手动填写';
+    rules.notes = '越南航空按 区A–D 计件计费，无法识别该港口所属区域，请手动填写费率';
+    return rules;
+  }
+  const amer = VN_AMER.has(O) || VN_AMER.has(D);
+  const withinA = (za === 'A' && zb === 'A');
+  const domestic = VN_VN.has(O) && VN_VN.has(D);
+  rules.free_bags_per_pax = (biz || pe) ? (withinA ? 1 : 2) : (amer ? 2 : 1);
+  rules.max_bags_per_pax = rules.free_bags_per_pax + 8;
+  let extra, over, oversize, routeCn;
+  if (domestic) { extra = 27; over = 33; oversize = 33; routeCn = '越南国内'; }
+  else { extra = VN_EXTRA[za][zb]; over = VN_OVER[za][zb]; oversize = extra; routeCn = `${VN_ZONE_CN[za]}↔${VN_ZONE_CN[zb]}`; }
+  rules.extra_first_fee_usd = extra; rules.extra_second_fee_usd = extra; rules.extra_rest_fee_usd = extra;
+  rules.excess_bag_fee_usd = extra;
+  rules.excess_bag_fee_text = `超件：每件 USD ${extra}（${routeCn}，官网标准价）`;
+  rules.overweight_fee_tiers = [{ maxKg: 32, fee: over }];
+  rules.overweight_fee_usd = over;
+  rules.overweight_fee_text = `超重 23–32kg：USD ${over}/件（${routeCn}）；>32kg 不接受托运`;
+  rules.oversize_fee_usd = oversize;
+  rules.oversize_fee_text = `超尺寸 158–203cm：USD ${oversize}/件（${routeCn}）；>203cm 转货运`;
+  rules.notes = `越南航空计件制：${routeCn}、${biz ? '商务' : pe ? '优选经济' : '经济'}；免费 ${rules.free_bags_per_pax} 件×${rules.standard_weight_kg}kg，单件 ≤32kg、≤158cm 免超尺寸；超件/超重(23–32kg)/超大(158–203cm)各项叠加计收，>32kg 或 >203cm 转货运。⚠ 此为「其他时段」官网标准价，高峰期(春节/暑运/圣诞等)更高；${domestic ? '越南国内实际按 VND 计、此为约合美元' : '国际线 USD 计'}，仅供参考、以越航官网为准。`;
+  return rules;
+}
+
 // ── Cebu Pacific (5J): low-cost carrier, no free allowance ────────────────
 // LCC model: every checked bag is a PREPAID 20kg piece; each piece can be
 // upgraded +4/+8/+12kg up to 32kg. Priced in PHP by haul bucket (domestic /
@@ -6058,6 +6143,13 @@ async function lookupRules(airlineCode, airlineName, cabin, origin, destination,
       if (r.weight_concept_available) r.weight_concept_allowance_kg = parseFloat(allowance.weight);
       else r.standard_weight_kg = parseFloat(allowance.weight);
     }
+    return r;
+  }
+  // Vietnam Airlines: piece concept, Vietnam-hub, 4-zone (A/B/C/D) USD matrix.
+  if (airlineCode === 'VN') {
+    const r = vnBuildRules(cabin, origin, destination);
+    if (allowance.free !== 'auto') { r.free_bags_per_pax = parseInt(allowance.free); r.max_bags_per_pax = (parseInt(allowance.free) || 0) + 8; }
+    if (allowance.weight !== 'auto') r.standard_weight_kg = parseFloat(allowance.weight);
     return r;
   }
   // Thai Airways: piece concept (eff 02 Mar 2026), Bangkok-hub, zone-pair matrix.
