@@ -1734,7 +1734,7 @@ let noStacking = false;
 // displayed values are trusted (backend-hardcoded / official-scraped). Every
 // OTHER airline's numbers come from the live AI lookup and are shown in pink to
 // flag "verify this — it's an AI estimate, not confirmed".
-const HARDCODED_AIRLINES = new Set(['CX','KE','JL','QR','EK','LH','AA','UA','NH','TK','BR','OZ','HX','5J','MU','CA','CZ','CI','PR','SQ','DL','TG','AC']);
+const HARDCODED_AIRLINES = new Set(['CX','KE','JL','QR','EK','LH','AA','UA','NH','TK','BR','OZ','HX','5J','MU','CA','CZ','CI','PR','SQ','DL','TG','AC','LX']);
 
 // One flyer realistically hauls ~100–150kg. When an airline publishes no
 // per-person total-weight cap, we fall back to this in packing AND surface it
@@ -3446,6 +3446,21 @@ function lhBuildRules(cabin, origin, destination) {
   rules.oversize_fee_text = `USD ${f.over}/件（159–292cm，${zoneCn}）`;
   rules.notes = `汉莎计件制：${zoneCn}、${first ? '头等' : biz ? '商务' : '经济'}；免费 ${rules.free_bags_per_pax} 件×${rules.standard_weight_kg}kg，加件首件 USD ${f.extraFirst}/之后 USD ${f.extraRest}。单件≤32kg、≤292cm。⚠ 汉莎费率为「行李计算器」网站价，仅供参考，实际请以官网查询为准。`;
   return rules;
+}
+
+// ─── SWISS (LX) hardcoded fees ─────────────────────────────────────────────
+// LX is a Lufthansa Group carrier and shares the group's excess-baggage price
+// list AND free-allowance structure with LH (confirmed against LX's own 行李额
+// pages 2026-07: econ 1×23, PE 2×23, biz 2×32, first 3×32; 32kg/158cm/292cm).
+// So LX reuses LH's zone fees verbatim, hub Zurich (in LH_EUROPE) → same zoning.
+function lxBuildRules(cabin, origin, destination) {
+  const r = lhBuildRules(cabin, origin, destination);
+  r.airline_code = 'LX';
+  r.airline_name_cn = '瑞士国际航空';
+  if (cabin === '超级经济舱') { r.free_bags_per_pax = 2; r.standard_weight_kg = 23; r.max_bags_per_pax = 7; }
+  if (r.notes) r.notes = r.notes.replace(/汉莎/g, '瑞航');
+  if (r.excess_bag_fee_usd != null) r.notes += '（瑞航与汉莎同属汉莎集团，超额行李收费标准共用）';
+  return r;
 }
 
 // ─── American Airlines (AA) hardcoded fees ─────────────────────────────────
@@ -5871,6 +5886,14 @@ async function lookupRules(airlineCode, airlineName, cabin, origin, destination,
   // Lufthansa: piece concept, hardcoded (within-Europe done; intercont pending).
   if (airlineCode === 'LH') {
     const r = lhBuildRules(cabin, origin, destination);
+    if (allowance.free !== 'auto') r.free_bags_per_pax = parseInt(allowance.free);
+    if (allowance.weight !== 'auto') r.standard_weight_kg = parseFloat(allowance.weight);
+    r.max_bags_per_pax = (parseInt(r.free_bags_per_pax) || 0) + 5;
+    return r;
+  }
+  // SWISS: Lufthansa Group — reuses LH's zone fees & allowance (shared schedule).
+  if (airlineCode === 'LX') {
+    const r = lxBuildRules(cabin, origin, destination);
     if (allowance.free !== 'auto') r.free_bags_per_pax = parseInt(allowance.free);
     if (allowance.weight !== 'auto') r.standard_weight_kg = parseFloat(allowance.weight);
     r.max_bags_per_pax = (parseInt(r.free_bags_per_pax) || 0) + 5;
