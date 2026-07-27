@@ -3458,7 +3458,14 @@ function lhBuildRules(cabin, origin, destination) {
 //   (both overweight+oversize additive → 300, matching LX's within-free 150/300).
 // Only the Far-East zone is LX-verified; other zones fall back to LH figures as
 // a Lufthansa-group ESTIMATE (flagged in notes), pending their own screenshots.
-const LX_FEES = { FE: { extraFirst: 65, extraRest: 200, over: 150 } }; // PEK→ZRH website
+// LX-verified website/prepaid fees per zone (EUR≈USD, Lufthansa-group par).
+// over = per-violation surcharge for 24–32kg OR 159–292cm (additive → both = 2×,
+// matching LX's within-free counter 150/300). extraSecond present where the zone
+// has a distinct 2nd-piece tier. Zone keys reuse LH's (lhZoneOf / LH_ZONE_CN).
+const LX_FEES = {
+  FE:  { extraFirst: 65, extraRest: 200, over: 150 },                  // PEK→ZRH (远东)
+  NAM: { extraFirst: 65, extraSecond: 90, extraRest: 200, over: 150 }, // PVG→JFK (北美)
+};
 function lxBuildRules(cabin, origin, destination) {
   const r = lhBuildRules(cabin, origin, destination);
   r.airline_code = 'LX';
@@ -3470,16 +3477,20 @@ function lxBuildRules(cabin, origin, destination) {
   const f = LX_FEES[zone];
   if (f) {
     // LX-verified fees for this zone (override LH's).
+    const zoneCn = LH_ZONE_CN[zone] || '';
     r.extra_first_fee_usd = f.extraFirst;
-    r.extra_second_fee_usd = f.extraRest;
+    r.extra_second_fee_usd = f.extraSecond != null ? f.extraSecond : f.extraRest;
     r.extra_rest_fee_usd = f.extraRest;
     r.excess_bag_fee_usd = f.extraRest;
-    r.excess_bag_fee_text = `首件 USD ${f.extraFirst}、之后每件 USD ${f.extraRest}（欧洲↔远东，网站价）`;
+    r.excess_bag_fee_text = f.extraSecond != null
+      ? `首件 USD ${f.extraFirst}、第二件 USD ${f.extraSecond}、之后每件 USD ${f.extraRest}（${zoneCn}，网站价）`
+      : `首件 USD ${f.extraFirst}、之后每件 USD ${f.extraRest}（${zoneCn}，网站价）`;
     r.overweight_fee_usd = f.over;
-    r.overweight_fee_text = `USD ${f.over}/件（24–32kg，欧洲↔远东，网站价）`;
+    r.overweight_fee_text = `USD ${f.over}/件（24–32kg，${zoneCn}，网站价）`;
     r.oversize_fee_usd = f.over;
-    r.oversize_fee_text = `USD ${f.over}/件（159–292cm，欧洲↔远东，网站价）`;
-    r.notes = `瑞航计件制：欧洲↔远东、${first ? '头等' : biz ? '商务' : '经济'}；免费 ${r.free_bags_per_pax} 件×${r.standard_weight_kg}kg，加件首件 USD ${f.extraFirst}/之后 USD ${f.extraRest}，超重(24–32kg)/超大(159–292cm)各 USD ${f.over}（叠加）。单件≤32kg、≤292cm，超者转汉莎货运。⚠ 费率取自瑞航官方「行李计算器」PEK→ZRH 网站价(EUR≈USD)，仅供参考、以官网为准。`;
+    r.oversize_fee_text = `USD ${f.over}/件（159–292cm，${zoneCn}，网站价）`;
+    const tierCn = f.extraSecond != null ? `首件 USD ${f.extraFirst}/第二件 USD ${f.extraSecond}/之后 USD ${f.extraRest}` : `首件 USD ${f.extraFirst}/之后 USD ${f.extraRest}`;
+    r.notes = `瑞航计件制：${zoneCn}、${first ? '头等' : biz ? '商务' : '经济'}；免费 ${r.free_bags_per_pax} 件×${r.standard_weight_kg}kg，加件${tierCn}，超重(24–32kg)/超大(159–292cm)各 USD ${f.over}（叠加）。单件≤32kg、≤292cm，超者转汉莎货运。⚠ 费率取自瑞航官方「行李计算器」网站价(EUR≈USD)，仅供参考、以官网为准。`;
   } else {
     // No LX data for this zone → keep LH's numbers as a Lufthansa-group estimate.
     if (r.notes) r.notes = r.notes.replace(/汉莎/g, '瑞航');
