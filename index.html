@@ -1734,7 +1734,7 @@ let noStacking = false;
 // displayed values are trusted (backend-hardcoded / official-scraped). Every
 // OTHER airline's numbers come from the live AI lookup and are shown in pink to
 // flag "verify this — it's an AI estimate, not confirmed".
-const HARDCODED_AIRLINES = new Set(['CX','KE','JL','QR','EK','LH','AA','UA','NH','TK','BR','OZ','HX','5J','MU','CA','CZ','CI','PR','SQ','DL','TG']);
+const HARDCODED_AIRLINES = new Set(['CX','KE','JL','QR','EK','LH','AA','UA','NH','TK','BR','OZ','HX','5J','MU','CA','CZ','CI','PR','SQ','DL','TG','AC']);
 
 // One flyer realistically hauls ~100–150kg. When an airline publishes no
 // per-person total-weight cap, we fall back to this in packing AND surface it
@@ -3696,6 +3696,69 @@ function dlBuildRules(cabin, origin, destination) {
     ? '⚠ 南美费率取自达美官方「行李计算器」圣保罗出发 BRL 价、按 R$1=$0.18 折算（3件起为估算），其他出发地/币种可能不同，仅供参考、以达美官网为准。'
     : '⚠ 美国境内第1/2件为官方公布价；3件起及超重/超大为达美标准公布价，仅供参考、以达美官网为准。';
   rules.notes = `达美计件制：${f.cn}、${first ? '头等' : biz ? '商务' : '经济主舱'}；免费 ${rules.free_bags_per_pax} 件×${rules.standard_weight_kg}kg，单件最重 ${f.maxKg}kg、最大 292cm，每人最多 ${f.max} 件。超件/超重/超大各项叠加计收。${src}`;
+  return rules;
+}
+
+// ─── Air Canada (AC) hardcoded fees ────────────────────────────────────────
+// Piece concept, Canada-hub. Captured 2026-07 from AC's official 行李 pages.
+// Standard 23kg/158cm; overweight 23–32kg, oversize 160–292cm; over 32kg / 292cm
+// / 203cm length → cargo (not accepted as baggage). Fee depends on route zone
+// AND bag position. 1st/2nd bag fees shown are the Basic/Standard-economy fare
+// price (Flex/Comfort/Latitude include free bags — set 免费件数). International
+// (加↔亚/欧) Basic economy: 1st USD 90 / 2nd USD 120. Extra(3rd+)/overweight/
+// oversize on sun+international are published as a RANGE (USD 225–270 / 100–120);
+// we take the upper end (参考). Reuses CA_REGIONS via caRegionOf (CAN/US/AMR/…).
+const AC_FEES = {
+  // ex = [1st, 2nd, 3rd+]; ow tiers; os = 160–292cm; all USD.
+  domestic:      { ex:[45,60,100],  ow:[{maxKg:32,fee:100}], os:100, cn:'加拿大境内' },
+  transborder:   { ex:[45,60,100],  ow:[{maxKg:32,fee:100}], os:100, cn:'加拿大↔美国(含夏威夷/阿拉斯加)' },
+  sun:           { ex:[45,60,270],  ow:[{maxKg:32,fee:120}], os:120, cn:'加拿大↔加勒比/墨西哥/中美洲', rng:true },
+  international:  { ex:[90,120,270], ow:[{maxKg:32,fee:120}], os:120, cn:'加拿大↔其他国际(亚洲/欧洲等)', rng:true },
+};
+function acZoneOf(origin, destination) {
+  const a = caRegionOf(origin), b = caRegionOf(destination);
+  if (!a || !b) return null;
+  if (a === 'CAN' && b === 'CAN') return 'domestic';
+  if (a !== 'CAN' && b !== 'CAN') return null; // AC routes are Canada-centric
+  const other = a === 'CAN' ? b : a;
+  if (other === 'US') return 'transborder';
+  if (other === 'AMR') return 'sun'; // Mexico/Caribbean/Central+South America
+  return 'international';             // EU/ME/AF/JP/SWP/AS
+}
+function acBuildRules(cabin, origin, destination) {
+  const biz = (cabin === '商务舱' || cabin === '头等舱');
+  const first = (cabin === '头等舱');
+  const zone = acZoneOf(origin, destination);
+  const rules = {
+    airline_code: 'AC', airline_name_cn: '加拿大航空', cabin_class: cabin,
+    standard_linear_cm: 158, linear_limit_cm: 292, length_limit_cm: 203, width_limit_cm: null, height_limit_cm: null,
+    weight_concept_available: false, weight_concept_allowance_kg: null,
+    weight_concept_excess_fee_usd_per_kg: null, weight_concept_text: '',
+    max_total_weight_kg: 0, piece_concept_available: true,
+    standard_weight_kg: biz ? 32 : 23, weight_limit_kg: 32,
+  };
+  if (!zone) {
+    rules.free_bags_per_pax = biz ? 2 : 0; rules.max_bags_per_pax = 10;
+    rules.excess_bag_fee_usd = null; rules.overweight_fee_usd = null; rules.oversize_fee_usd = null;
+    rules.excess_bag_fee_text = rules.overweight_fee_text = rules.oversize_fee_text = '未查到，请手动填写';
+    rules.notes = '加航按航线区间计费，无法识别该港口（或非加拿大始发/到达航线），请手动填写费率';
+    return rules;
+  }
+  const f = AC_FEES[zone];
+  rules.free_bags_per_pax = first ? 3 : (biz ? 2 : 0);
+  rules.max_bags_per_pax = 10;
+  rules.extra_first_fee_usd = f.ex[0];
+  rules.extra_second_fee_usd = f.ex[1];
+  rules.extra_rest_fee_usd = f.ex[2];
+  rules.excess_bag_fee_usd = f.ex[2];
+  rules.excess_bag_fee_text = `超免费额度后：第1件 USD ${f.ex[0]}、第2件 USD ${f.ex[1]}、之后每件 USD ${f.ex[2]}（${f.cn}${f.rng ? '，区间价取高值' : ''}）`;
+  rules.overweight_fee_tiers = f.ow;
+  rules.overweight_fee_usd = f.ow[0].fee;
+  rules.overweight_fee_text = `超重 23–32kg：USD ${f.ow[0].fee}/件（${f.cn}）；>32kg 转货运不接受`;
+  rules.oversize_fee_usd = f.os;
+  rules.oversize_fee_text = `超尺寸 160–292cm：USD ${f.os}/件（${f.cn}）；>292cm 或长 >203cm 转货运`;
+  const rngNote = f.rng ? '⚠ 该区超件/超重/超大官方为区间价（额外行李 USD 225–270、超重超大 USD 100–120），此处取高值估算，仅供参考、以加航官网为准。' : '⚠ 费率为加航官方公布价，仅供参考、以官网为准。';
+  rules.notes = `加航计件制：${f.cn}、${first ? '头等' : biz ? '商务' : '经济'}；1/2件费为基础/标准经济票价（Flex/Comfort/Latitude 含免费额度，请在「免费件数」调整），默认按基础经济 ${rules.free_bags_per_pax} 免费件。单件 ≤32kg、≤158cm 免超尺寸，超件/超重/超大各项叠加计收，>32kg 或 >292cm 转货运。${rngNote}`;
   return rules;
 }
 
@@ -5830,6 +5893,13 @@ async function lookupRules(airlineCode, airlineName, cabin, origin, destination,
   // Delta Air Lines: piece concept, hardcoded (US-hub; transpacific + domestic).
   if (airlineCode === 'DL') {
     const r = dlBuildRules(cabin, origin, destination);
+    if (allowance.free !== 'auto') r.free_bags_per_pax = parseInt(allowance.free);
+    if (allowance.weight !== 'auto') r.standard_weight_kg = parseFloat(allowance.weight);
+    return r;
+  }
+  // Air Canada: piece concept, hardcoded (Canada-hub; domestic/US/sun/international).
+  if (airlineCode === 'AC') {
+    const r = acBuildRules(cabin, origin, destination);
     if (allowance.free !== 'auto') r.free_bags_per_pax = parseInt(allowance.free);
     if (allowance.weight !== 'auto') r.standard_weight_kg = parseFloat(allowance.weight);
     return r;
