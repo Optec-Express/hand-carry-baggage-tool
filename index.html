@@ -3449,17 +3449,42 @@ function lhBuildRules(cabin, origin, destination) {
 }
 
 // ─── SWISS (LX) hardcoded fees ─────────────────────────────────────────────
-// LX is a Lufthansa Group carrier and shares the group's excess-baggage price
-// list AND free-allowance structure with LH (confirmed against LX's own 行李额
-// pages 2026-07: econ 1×23, PE 2×23, biz 2×32, first 3×32; 32kg/158cm/292cm).
-// So LX reuses LH's zone fees verbatim, hub Zurich (in LH_EUROPE) → same zoning.
+// LX is a Lufthansa Group carrier: same free-allowance structure & route zoning
+// as LH (hub Zurich, in LH_EUROPE), and same 24–32kg/159–292cm surcharge bands,
+// >32kg/>315cm → cargo. BUT the actual excess FEES differ from LH — verified
+// against LX's own 行李计算器 2026-07 (PEK→ZRH, Economy, WEBSITE/prepaid price,
+// shown in EUR; Lufthansa Group prices EUR≈USD≈CHF at par, so stored as USD):
+//   Europe↔Far East: 加件首件 65 / 之后 200；超重(24–32kg) 150；超大(159–292cm) 150
+//   (both overweight+oversize additive → 300, matching LX's within-free 150/300).
+// Only the Far-East zone is LX-verified; other zones fall back to LH figures as
+// a Lufthansa-group ESTIMATE (flagged in notes), pending their own screenshots.
+const LX_FEES = { FE: { extraFirst: 65, extraRest: 200, over: 150 } }; // PEK→ZRH website
 function lxBuildRules(cabin, origin, destination) {
   const r = lhBuildRules(cabin, origin, destination);
   r.airline_code = 'LX';
   r.airline_name_cn = '瑞士国际航空';
+  const biz = (cabin === '商务舱' || cabin === '头等舱');
+  const first = (cabin === '头等舱');
   if (cabin === '超级经济舱') { r.free_bags_per_pax = 2; r.standard_weight_kg = 23; r.max_bags_per_pax = 7; }
-  if (r.notes) r.notes = r.notes.replace(/汉莎/g, '瑞航');
-  if (r.excess_bag_fee_usd != null) r.notes += '（瑞航与汉莎同属汉莎集团，超额行李收费标准共用）';
+  const zone = lhZoneOf(origin, destination);
+  const f = LX_FEES[zone];
+  if (f) {
+    // LX-verified fees for this zone (override LH's).
+    r.extra_first_fee_usd = f.extraFirst;
+    r.extra_second_fee_usd = f.extraRest;
+    r.extra_rest_fee_usd = f.extraRest;
+    r.excess_bag_fee_usd = f.extraRest;
+    r.excess_bag_fee_text = `首件 USD ${f.extraFirst}、之后每件 USD ${f.extraRest}（欧洲↔远东，网站价）`;
+    r.overweight_fee_usd = f.over;
+    r.overweight_fee_text = `USD ${f.over}/件（24–32kg，欧洲↔远东，网站价）`;
+    r.oversize_fee_usd = f.over;
+    r.oversize_fee_text = `USD ${f.over}/件（159–292cm，欧洲↔远东，网站价）`;
+    r.notes = `瑞航计件制：欧洲↔远东、${first ? '头等' : biz ? '商务' : '经济'}；免费 ${r.free_bags_per_pax} 件×${r.standard_weight_kg}kg，加件首件 USD ${f.extraFirst}/之后 USD ${f.extraRest}，超重(24–32kg)/超大(159–292cm)各 USD ${f.over}（叠加）。单件≤32kg、≤292cm，超者转汉莎货运。⚠ 费率取自瑞航官方「行李计算器」PEK→ZRH 网站价(EUR≈USD)，仅供参考、以官网为准。`;
+  } else {
+    // No LX data for this zone → keep LH's numbers as a Lufthansa-group estimate.
+    if (r.notes) r.notes = r.notes.replace(/汉莎/g, '瑞航');
+    if (r.excess_bag_fee_usd != null) r.notes += '（该区费率暂用汉莎集团估算值，瑞航实际以官网为准）';
+  }
   return r;
 }
 
