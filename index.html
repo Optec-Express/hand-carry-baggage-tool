@@ -1734,7 +1734,7 @@ let noStacking = false;
 // displayed values are trusted (backend-hardcoded / official-scraped). Every
 // OTHER airline's numbers come from the live AI lookup and are shown in pink to
 // flag "verify this — it's an AI estimate, not confirmed".
-const HARDCODED_AIRLINES = new Set(['CX','KE','JL','QR','EK','LH','AA','UA','NH','TK','BR','OZ','HX','5J','MU','CA','CZ','CI','PR','SQ','DL','TG','AC','LX','VN']);
+const HARDCODED_AIRLINES = new Set(['CX','KE','JL','QR','EK','LH','AA','UA','NH','TK','BR','OZ','HX','5J','MU','CA','CZ','CI','PR','SQ','DL','TG','AC','LX','VN','MM']);
 
 // One flyer realistically hauls ~100–150kg. When an airline publishes no
 // per-person total-weight cap, we fall back to this in packing AND surface it
@@ -5129,6 +5129,65 @@ function vnBuildRules(cabin, origin, destination) {
   return rules;
 }
 
+// ─── Peach Aviation (MM / 乐桃航空) hardcoded fees ─────────────────────────
+// LCC, Japan-hub. Captured 2026-07 from Peach's official 行李託運費用 pages.
+// Route-zoned (A/B/C/D by the non-Japan endpoint); prices are 日本出發 JPY,
+// stored as USD at ¥150≈$1 (WEB/prepaid rate; call-centre & airport are higher).
+// Every checked bag is paid (Minimum fare 0 free; Standard/Plus include 1st free).
+// Piece ≤20kg / ≤203cm (3-sum); overweight 20–32kg and oversize (>203cm, each
+// side ≤80/80/230) add a per-piece surcharge; >32kg not accepted; max 5 pieces,
+// ≤100kg/pax. Zones: A=日↔韩, B=日↔港台, C=日↔中国, D=日↔泰/新(东南亚).
+const MM_JP = new Set([...CA_REGIONS.JP]);
+const MM_KR = new Set(['GMP','ICN','PUS','CJU','TAE']);
+const MM_HKTW = new Set(['HKG','TPE','TSA','KHH','RMQ']);
+const MM_CN = new Set([...CA_CN_MAINLAND]);
+const MM_SEA = new Set(['BKK','DMK','SIN','KUL','MNL','CEB','DAD','SGN','HAN','CXR','DPS','CRK']);
+const MM_FEES = {
+  A: { piece: 17, over: 15, cn: '日↔韩' },
+  B: { piece: 24, over: 22, cn: '日↔港台' },
+  C: { piece: 50, over: 45, cn: '日↔中国大陆' },
+  D: { piece: 41, over: 36, cn: '日↔东南亚(泰/新等)' },
+};
+function mmZoneOf(origin, destination) {
+  const o = (origin || '').trim().toUpperCase(), d = (destination || '').trim().toUpperCase();
+  const other = MM_JP.has(o) ? d : (MM_JP.has(d) ? o : null);
+  if (!other || MM_JP.has(other)) return null; // must be Japan↔非日本
+  if (MM_KR.has(other)) return 'A';
+  if (MM_HKTW.has(other)) return 'B';
+  if (MM_CN.has(other)) return 'C';
+  if (MM_SEA.has(other)) return 'D';
+  return null;
+}
+function mmBuildRules(cabin, origin, destination) {
+  const zone = mmZoneOf(origin, destination);
+  const rules = {
+    airline_code: 'MM', airline_name_cn: '乐桃航空', cabin_class: cabin,
+    standard_linear_cm: 203, linear_limit_cm: 390, length_limit_cm: 230, width_limit_cm: 80, height_limit_cm: 80,
+    weight_concept_available: false, weight_concept_allowance_kg: null,
+    weight_concept_excess_fee_usd_per_kg: null, weight_concept_text: '',
+    max_total_weight_kg: 100, piece_concept_available: true,
+    standard_weight_kg: 20, weight_limit_kg: 32,
+    free_bags_per_pax: 0, max_bags_per_pax: 5,
+  };
+  if (!zone) {
+    rules.excess_bag_fee_usd = null; rules.overweight_fee_usd = null; rules.oversize_fee_usd = null;
+    rules.excess_bag_fee_text = rules.overweight_fee_text = rules.oversize_fee_text = '未查到，请手动填写';
+    rules.notes = '乐桃(廉航)仅收录 日本↔韩/港台/中国/泰新 的行李费，此航线未收录（乐桃为日本枢纽 LCC），请手动填写费率';
+    return rules;
+  }
+  const f = MM_FEES[zone];
+  rules.extra_first_fee_usd = f.piece; rules.extra_second_fee_usd = f.piece; rules.extra_rest_fee_usd = f.piece;
+  rules.excess_bag_fee_usd = f.piece;
+  rules.excess_bag_fee_text = `每件 USD ${f.piece}（${f.cn}，网路预购价、日本出发 JPY 折算）`;
+  rules.overweight_fee_tiers = [{ maxKg: 32, fee: f.over }];
+  rules.overweight_fee_usd = f.over;
+  rules.overweight_fee_text = `超重 20–32kg：USD ${f.over}/件（${f.cn}）；>32kg 不接受`;
+  rules.oversize_fee_usd = f.over;
+  rules.oversize_fee_text = `超尺寸(3边和 >203cm、各边≤80/80/230cm)：USD ${f.over}/件（${f.cn}）；超上限不接受`;
+  rules.notes = `乐桃(廉航)计件：${f.cn}；无免费托运额度(Minimum 票价)，每件 USD ${f.piece}(≤20kg/≤203cm)，超重 20–32kg 或超尺寸各加 USD ${f.over}，每人最多 5 件、总重 ≤100kg、单件 ≤32kg。Standard/Standard Plus 票价含第 1 件免费(可在「免费件数」改)。⚠ 费率为官网「网路预购」价、日本出发 JPY 按 ¥150≈$1 折算，机场/客服更贵、非日本出发币种略不同，仅供参考、以乐桃官网为准。`;
+  return rules;
+}
+
 // ── Cebu Pacific (5J): low-cost carrier, no free allowance ────────────────
 // LCC model: every checked bag is a PREPAID 20kg piece; each piece can be
 // upgraded +4/+8/+12kg up to 32kg. Priced in PHP by haul bucket (domestic /
@@ -6143,6 +6202,13 @@ async function lookupRules(airlineCode, airlineName, cabin, origin, destination,
       if (r.weight_concept_available) r.weight_concept_allowance_kg = parseFloat(allowance.weight);
       else r.standard_weight_kg = parseFloat(allowance.weight);
     }
+    return r;
+  }
+  // Peach Aviation: LCC, Japan-hub, route-zoned (A/B/C/D) prepaid piece fees.
+  if (airlineCode === 'MM') {
+    const r = mmBuildRules(cabin, origin, destination);
+    if (allowance.free !== 'auto') r.free_bags_per_pax = parseInt(allowance.free);
+    if (allowance.weight !== 'auto') r.standard_weight_kg = parseFloat(allowance.weight);
     return r;
   }
   // Vietnam Airlines: piece concept, Vietnam-hub, 4-zone (A/B/C/D) USD matrix.
