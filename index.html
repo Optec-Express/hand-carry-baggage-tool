@@ -2674,6 +2674,7 @@ const JA_DICT = {
   '香港快运': '香港エクスプレス',
   '乐桃航空': 'ピーチ・アビエーション',
   '宿务太平洋': 'セブパシフィック航空',
+  '芬兰航空': 'フィンエアー',
   '国泰': 'キャセイ',
   '大韩': '大韓航空',
   '日航': 'JAL',
@@ -2906,6 +2907,7 @@ const AIRLINES = [
   {c:'CZ',n:'中国南方航空'},{c:'CI',n:'中华航空'},{c:'BR',n:'长荣航空'},{c:'OZ',n:'韩亚航空'},
   {c:'LX',n:'瑞士国际航空'},{c:'MU',n:'中国东方航空'},{c:'TG',n:'泰国国际航空'},{c:'VN',n:'越南航空'},
   {c:'UO',n:'香港快运'},{c:'MM',n:'乐桃航空'},{c:'5J',n:'宿务太平洋'},
+  {c:'AY',n:'芬兰航空'},
 ];
 const airlineNameOf = code => (AIRLINES.find(a => a.c === code) || {}).n || code;
 // Japanese display names for the picker. The Chinese name stays the internal
@@ -2918,6 +2920,7 @@ const JA_AIRLINE = {
   CZ:'中国南方航空', CI:'チャイナエアライン', BR:'エバー航空', OZ:'アシアナ航空',
   LX:'スイス インターナショナル エアラインズ', MU:'中国東方航空', TG:'タイ国際航空', VN:'ベトナム航空',
   UO:'香港エクスプレス', MM:'ピーチ・アビエーション', '5J':'セブパシフィック航空',
+  AY:'フィンエアー',
 };
 const airlineDisp = a => (LANG === 'ja' && JA_AIRLINE[a.c]) ? JA_AIRLINE[a.c] : a.n;
 // Repaint every airline picker's text box after a language switch — the input's
